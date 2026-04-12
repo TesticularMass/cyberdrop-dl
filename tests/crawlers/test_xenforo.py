@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -66,6 +67,34 @@ def _any_item_call(value: Any) -> mock._Call:
 def _amock(func: str = "process_child", crawler: xenforo.XenforoCrawler | None = None) -> mock._patch[mock.AsyncMock]:
     crawler = crawler or TEST_CRAWLER
     return mock.patch.object(crawler, func, new_callable=mock.AsyncMock)
+
+
+SIMPCITY_WHOLE_THREAD_FIXTURE = (
+    Path(__file__).resolve().parents[1] / "test_files" / "xenforo" / "simpcity_whole_thread_les_chesticles.html"
+)
+
+
+def _load_xenforo_fixture(path: Path) -> BeautifulSoup:
+    return BeautifulSoup(path.read_text(encoding="utf-8"), "html.parser")
+
+
+def test_simpcity_whole_thread_fixture_contains_expected_post_ids() -> None:
+    soup = _load_xenforo_fixture(SIMPCITY_WHOLE_THREAD_FIXTURE)
+    articles = soup.select("article.message[id*=post]")
+    ids = [int(article["id"].rsplit("-", 1)[-1]) for article in articles]
+    assert ids == [
+        659664,
+        761355,
+        943678,
+        3173859,
+        3174102,
+        3284977,
+        3297485,
+        3301990,
+        44157189,
+        44217641,
+        45075694,
+    ]
 
 
 @pytest.fixture(name="manager")
