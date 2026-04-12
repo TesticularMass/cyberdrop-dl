@@ -814,19 +814,12 @@ async def test_simpcity_whole_thread_preserves_extraction_regression_shape() -> 
     }
     assert actual_links_by_post == expected_links_by_post
 
-    all_links = {link for links in actual_links_by_post.values() for link in links}
-    assert all_links == {
-        "https://onlyfans.com/les.chesticles/media",
-        "https://instagram.com/les.chesticles?igshid=YmMyMTA2M2Y=",
-        "https://www.reddit.com/user/les-chesticles",
-        "https://www.depop.com/leschesticles",
-        "https://onlyfans.com/u386107680",
-        "https://bunkr.cr/a/oFTJIwjx",
-    }
+    expected_all_links = {link for links in expected_links_by_post.values() for link in links}
+    assert {link for links in actual_links_by_post.values() for link in links} == expected_all_links
 
     assert {
         link
-        for link in all_links
+        for link in expected_all_links
         if "instagram.com" not in link and "bunkr.cr" not in link
     } == {
         "https://onlyfans.com/les.chesticles/media",
