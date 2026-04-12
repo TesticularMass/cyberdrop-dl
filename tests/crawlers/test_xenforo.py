@@ -234,6 +234,37 @@ def test_parse_thread(url: str, thread_name_and_id: str, result: tuple[int, str,
     assert result_ == parsed
 
 
+def test_normalize_thread_request_url_removes_alias_segment() -> None:
+    url = AbsoluteHttpURL("https://simpcity.cr/threads/katelyn-s5410/ampisi-mrscampisi-thecampisis-the-campisis.125410/")
+    normalized = _forum.normalize_thread_request_url(url, thread_part_index=1, thread_name_index=3)
+    assert normalized == AbsoluteHttpURL(
+        "https://simpcity.cr/threads/ampisi-mrscampisi-thecampisis-the-campisis.125410/"
+    )
+
+
+@pytest.mark.asyncio
+async def test_fetch_thread_accepts_alias_segment_before_thread_name() -> None:
+    scrape_item = _item("https://simpcity.cr/threads/katelyn-s5410/ampisi-mrscampisi-thecampisis-the-campisis.125410/")
+    expected_request_url = AbsoluteHttpURL("https://simpcity.cr/threads/ampisi-mrscampisi-thecampisis-the-campisis.125410/")
+    expected_canonical_url = AbsoluteHttpURL("https://simpcity.cr/threads/ampisi-mrscampisi-thecampisis-the-campisis.125410")
+
+    with (
+        mock.patch.object(TEST_CRAWLER, "check_thread_recursion"),
+        mock.patch.object(TEST_CRAWLER, "thread", new_callable=mock.AsyncMock) as thread_mock,
+    ):
+        await TEST_CRAWLER.fetch_thread(scrape_item)
+
+    assert scrape_item.url == expected_request_url
+    thread = thread_mock.await_args.args[1]
+    assert thread == _forum.Thread(
+        125410,
+        "ampisi-mrscampisi-thecampisis-the-campisis",
+        1,
+        None,
+        expected_canonical_url,
+    )
+
+
 @pytest.mark.parametrize(
     "link, out",
     [
@@ -350,6 +381,18 @@ def test_parse_login_form_no_input_form_should_fail() -> None:
             r"text with no slashes https://xenforo.com/path",
             "https://xenforo.com/path",
         ),
+        (
+            r"prefix https://example.com/path, suffix",
+            "https://example.com/path",
+        ),
+        (
+            r"prefix https://example.com/path#frag, suffix",
+            "https://example.com/path#frag",
+        ),
+        (
+            r"prefix https://example.com/path?x=1,y=2 suffix",
+            "https://example.com/path?x=1,y=2",
+        ),
         # Test cases where no URL is found
         (
             "just some plain text",
@@ -390,7 +433,6 @@ def test_extract_embed_url(input_string: str, expected_output: str) -> None:
     assert _forum.extract_embed_url(input_string) == expected_output
 
 
-@pytest.mark.xfail  # regex can not handle URLs with commands in it (kvs)
 @pytest.mark.parametrize(
     ("input_string", "expected_output"),
     [
@@ -398,13 +440,21 @@ def test_extract_embed_url(input_string: str, expected_output: str) -> None:
             r"start \/\/media.jp5.net/videos/2023/clip_id-123.mp4?autoplay=true&loop=false#t=10s end",
             "https://media.jp5.net/videos/2023/clip_id-123.mp4?autoplay=true&loop=false#t=10s",
         ),
-        (
-            r"start \/\/jupiter4.thisvid.com/key=SEtXHaueMU2PByWg4GNMnw,end=1750179436/speed=1.4/buffer=5.0/12702000/12702535/12702535.mp4 other",
-            "https://jupiter4.thisvid.com/key=SEtXHaueMU2PByWg4GNMnw,end=1750179436/speed=1.4/buffer=5.0/12702000/12702535/12702535.mp4",
-        ),
     ],
 )
 def test_extract_embed_url_complex_path(input_string: str, expected_output: str) -> None:
+    assert _forum.extract_embed_url(input_string) == expected_output
+
+
+def test_extract_embed_url_kvs_style_path_preserves_commands() -> None:
+    input_string = (
+        r"start \/\/jupiter4.thisvid.com/key=SEtXHaueMU2PByWg4GNMnw,end=1750179436/speed=1.4/"
+        r"buffer=5.0/12702000/12702535/12702535.mp4 other"
+    )
+    expected_output = (
+        "https://jupiter4.thisvid.com/key=SEtXHaueMU2PByWg4GNMnw,end=1750179436/speed=1.4/"
+        "buffer=5.0/12702000/12702535/12702535.mp4"
+    )
     assert _forum.extract_embed_url(input_string) == expected_output
 
 

@@ -237,10 +237,13 @@ class MessageBoardCrawler(Crawler, is_abc=True):
         if self.PRIMARY_URL.parts[-1] == "":
             thread_part_index -= 1
         match scrape_item.url.parts[thread_part_index:]:
-            case [thread_part, thread_name_and_id, *_] if thread_part in self.THREAD_PART_NAMES:
-                self.check_thread_recursion(scrape_item)
-                thread = self.parse_thread(scrape_item.url, thread_name_and_id)
-                return await self.thread(scrape_item, thread)
+            case [thread_part, *_] if thread_part in self.THREAD_PART_NAMES:
+                if thread_name_index := find_thread_name_index(scrape_item.url, thread_part_index):
+                    self.check_thread_recursion(scrape_item)
+                    scrape_item.url = normalize_thread_request_url(scrape_item.url, thread_part_index, thread_name_index)
+                    thread_name_and_id = scrape_item.url.parts[thread_part_index + 1]
+                    thread = self.parse_thread(scrape_item.url, thread_name_and_id)
+                    return await self.thread(scrape_item, thread)
             case ["goto" | "posts", _, *_]:
                 self.check_thread_recursion(scrape_item)
                 return await self.follow_redirect(scrape_item)
@@ -627,6 +630,26 @@ def parse_thread_name_and_id(thread_name_and_id: str) -> tuple[str, int]:
     except ValueError:
         id_str, name = thread_name_and_id.split("-", 1)
     return name, int(id_str)
+
+
+def find_thread_name_index(url: AbsoluteHttpURL, thread_part_index: int) -> int | None:
+    for index, part in enumerate(url.parts[thread_part_index + 1 :], start=thread_part_index + 1):
+        if not part:
+            continue
+        try:
+            parse_thread_name_and_id(part)
+        except ValueError:
+            continue
+        return index
+    return None
+
+
+def normalize_thread_request_url(url: AbsoluteHttpURL, thread_part_index: int, thread_name_index: int) -> AbsoluteHttpURL:
+    new_parts = [*url.parts[1 : thread_part_index + 1], url.parts[thread_name_index], *url.parts[thread_name_index + 1 :]]
+    normalized = url.with_path("/".join(new_parts))
+    if url.fragment:
+        normalized = normalized.with_fragment(url.fragment)
+    return normalized
 
 
 def get_thread_canonical_url(url: AbsoluteHttpURL, thread_name_index: int) -> AbsoluteHttpURL:
