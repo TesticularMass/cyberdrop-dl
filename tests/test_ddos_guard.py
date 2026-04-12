@@ -1,3 +1,5 @@
+import hashlib
+
 import pytest
 from bs4 import BeautifulSoup
 
@@ -50,14 +52,14 @@ async def test_solve_anubis_challenge() -> None:
     challenge = ddos_guard.Anubis.parse_challenge(anubis_soup)
     assert challenge
     solution = await ddos_guard.Anubis.solve(challenge)
-    assert solution == ddos_guard._AnubisSolution(
-        id="019abb13-2859-7587-bec3-16e0a3f67ce9",
-        nonce=1676094,
-        hash="00000e426afc08534b13bb3f75bad02dc20d73d70674b9dc174416cc7d3685e6",
-        workers=2,
-        difficulty=5,
-        total_time=0,
-    )
+    assert solution.id == "019abb13-2859-7587-bec3-16e0a3f67ce9"
+    assert solution.difficulty == 5
+    assert solution.workers == max(ddos_guard.cpu_count() // 2, 1)
+    assert solution.total_time >= 0
+
+    expected_hash = hashlib.sha256(f"{challenge.data}{solution.nonce}".encode()).hexdigest()
+    assert solution.hash == expected_hash
+    assert solution.hash.startswith("0" * challenge.difficulty)
 
 
 async def test_ddos_response_should_raise_ddos_guard_error() -> None:
