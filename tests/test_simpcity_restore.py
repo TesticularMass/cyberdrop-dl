@@ -1,5 +1,6 @@
 from cyberdrop_dl import crawlers, supported_domains
 from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.managers.cache_manager import build_urls_expire_after
 from cyberdrop_dl.utils.markdown import get_crawlers_info_as_markdown_table
 
 
@@ -23,3 +24,16 @@ def test_supported_sites_markdown_lists_simpcity() -> None:
     markdown = get_crawlers_info_as_markdown_table()
     assert "SimpCity" in markdown
     assert "https://simpcity.cr" in markdown
+
+
+def test_build_urls_expire_after_keeps_both_simpcity_domains() -> None:
+    urls_expire_after = build_urls_expire_after(
+        supported_forums={"simpcity": "simpcity.cr"},
+        supported_websites={},
+        file_host_cache_expire_after=60,
+        forum_cache_expire_after=120,
+    )
+
+    assert urls_expire_after["*.simpcity.cr"] == 60
+    assert urls_expire_after["*.simpcity.su"] == 60
+    assert urls_expire_after["simpcity.cr"] == 120

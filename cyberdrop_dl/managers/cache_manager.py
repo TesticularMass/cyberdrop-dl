@@ -36,14 +36,12 @@ class CacheManager:
         from cyberdrop_dl.supported_domains import SUPPORTED_FORUMS, SUPPORTED_WEBSITES
 
         rate_limiting_options = self.manager.config_manager.global_settings_data.rate_limiting_options
-        urls_expire_after = {
-            "*.simpcity.su": rate_limiting_options.file_host_cache_expire_after,
-        }
-        for host in SUPPORTED_WEBSITES.values():
-            match_host = f"*.{host}" if "." in host else f"*.{host}.*"
-            urls_expire_after[match_host] = rate_limiting_options.file_host_cache_expire_after
-        for forum in SUPPORTED_FORUMS.values():
-            urls_expire_after[forum] = rate_limiting_options.forum_cache_expire_after
+        urls_expire_after = build_urls_expire_after(
+            supported_forums=SUPPORTED_FORUMS,
+            supported_websites=SUPPORTED_WEBSITES,
+            file_host_cache_expire_after=rate_limiting_options.file_host_cache_expire_after,
+            forum_cache_expire_after=rate_limiting_options.forum_cache_expire_after,
+        )
 
     def get(self, key: str) -> Any:
         """Returns the value of a key in the cache."""
@@ -67,3 +65,22 @@ class CacheManager:
 
     async def close(self) -> None:
         self.save("version", current_version)
+
+
+def build_urls_expire_after(
+    *,
+    supported_forums: dict[str, str],
+    supported_websites: dict[str, str],
+    file_host_cache_expire_after: int,
+    forum_cache_expire_after: int,
+) -> dict[str, int]:
+    urls_expire_after = {
+        "*.simpcity.cr": file_host_cache_expire_after,
+        "*.simpcity.su": file_host_cache_expire_after,
+    }
+    for host in supported_websites.values():
+        match_host = f"*.{host}" if "." in host else f"*.{host}.*"
+        urls_expire_after[match_host] = file_host_cache_expire_after
+    for forum in supported_forums.values():
+        urls_expire_after[forum] = forum_cache_expire_after
+    return urls_expire_after
