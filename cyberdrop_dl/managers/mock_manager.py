@@ -16,7 +16,7 @@ class MockCallable:
         return self.return_obj
 
 
-class Mock(Any):
+class Mock:
     def __init__(self, name: str, /) -> None:
         self._nested_attrs: dict[str, Mock] = {}
         self._mock_name = name
