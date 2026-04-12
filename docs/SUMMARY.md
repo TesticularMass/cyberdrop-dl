@@ -7,8 +7,6 @@
 * [Transition to V8](upgrade.md)
 * [Frequently Asked Questions](frequently-asked-questions.md)
 * [Migration to Cyberdrop-DL-Patched](migration-to-cyberdrop-dl-patched.md)
-* [SimpCity Support Dropped](simpcity-support-dropped.md)
-
 ## Reference
 
 * [Supported Websites](reference/supported-websites.md)

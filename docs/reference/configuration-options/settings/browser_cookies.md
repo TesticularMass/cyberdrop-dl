@@ -1,9 +1,13 @@
 # Browser Cookies
 
-Cyberdrop-DL can extract cookies from your browser. These can be used for websites that require login or to pass DDoS-Guard challenges. Only cookies from supported websites are extracted
+Cyberdrop-DL can extract cookies from your browser. These can be used for websites that require login or to pass DDoS-Guard challenges. Only cookies from supported websites are extracted.
 
 {% hint style="warning" %}
-The `user-agent` config value **MUST** match the `user-agent` of the browser from which you imported the cookies. If they do not match, the cookies will not work
+SimpCity support is best-effort. You must provide valid `simpcity.cr` cookies, and the configured `user-agent` must match the browser used to extract them. Site-side anti-bot or rate-limit changes may still break SimpCity scraping.
+{% endhint %}
+
+{% hint style="warning" %}
+The `user-agent` config value **MUST** match the `user-agent` of the browser from which you imported the cookies. If they do not match, the cookies will not work.
 {% endhint %}
 
 ## `auto_import`
