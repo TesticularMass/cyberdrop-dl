@@ -729,6 +729,113 @@ def test_post_images(cls: type[xenforo.XenforoCrawler], post_content: str, expec
     assert results == expected_result
 
 
+def _simpcity_fixture_posts() -> dict[int, _forum.ForumPost]:
+    crawler = crawler_instances[crawlers.SimpCityCrawler]
+    soup = _load_xenforo_fixture(SIMPCITY_WHOLE_THREAD_FIXTURE)
+    posts: dict[int, _forum.ForumPost] = {}
+    for article in soup.select(crawler.SELECTORS.posts.article):
+        post = _forum.ForumPost.new(article, crawler.SELECTORS.posts)
+        posts[post.id] = post
+    return posts
+
+
+async def _normalize_extracted_links(
+    crawler: xenforo.XenforoCrawler, post: _forum.ForumPost
+) -> list[str]:
+    normalized: list[str] = []
+    for link in crawler._external_links(post):
+        absolute = await crawler.get_absolute_link(link)
+        assert absolute is not None
+        normalized.append(str(absolute))
+    return normalized
+
+
+@pytest.mark.asyncio
+async def test_simpcity_whole_thread_preserves_extraction_regression_shape() -> None:
+    crawler = crawler_instances[crawlers.SimpCityCrawler]
+    posts = _simpcity_fixture_posts()
+
+    expected_images_by_post = {
+        659664: [
+            "https://simp1.selti-delivery.ru/images/ADE9702D-BAD9-4DAB-BE13-1340B334D45A.md.jpg",
+            "https://simp1.selti-delivery.ru/images/FAF16779-0151-461A-B56A-F6A5A7D5A6A7.md.jpg",
+            "https://simp1.selti-delivery.ru/images/36E0B645-741D-42D2-8923-4DF52311C502.md.jpg",
+        ],
+        761355: [
+            "https://simp4.selti-delivery.ru/g2rxt9qd8wc91.md.jpg",
+        ],
+        943678: [
+            "https://simp4.selti-delivery.ru/237q2qzze4m91f4cbe0e27fd2a15a.md.jpg",
+            "https://simp4.selti-delivery.ru/k3zqncz7l4m9191ce0eada5ace347.md.jpg",
+            "https://simp4.selti-delivery.ru/zyortmzbe4m9116f79626d853988b.md.jpg",
+        ],
+        3173859: [],
+        3174102: [],
+        3284977: [],
+        3297485: [],
+        3301990: [],
+        44157189: [
+            "https://simp6.selti-delivery.ru/images4/IMG_879659805eab35eeb647.md.jpg",
+        ],
+        44217641: [],
+        45075694: [],
+    }
+
+    expected_links_by_post = {
+        659664: [
+            "https://onlyfans.com/les.chesticles/media",
+            "https://instagram.com/les.chesticles?igshid=YmMyMTA2M2Y=",
+        ],
+        761355: [
+            "https://www.reddit.com/user/les-chesticles",
+            "https://www.depop.com/leschesticles",
+        ],
+        943678: [],
+        3173859: [
+            "https://onlyfans.com/u386107680",
+        ],
+        3174102: [],
+        3284977: [],
+        3297485: [],
+        3301990: [],
+        44157189: [],
+        44217641: [
+            "https://bunkr.cr/a/oFTJIwjx",
+        ],
+        45075694: [],
+    }
+
+    for post_id, expected_images in expected_images_by_post.items():
+        assert list(crawler._images(posts[post_id])) == expected_images
+
+    actual_links_by_post = {
+        post_id: await _normalize_extracted_links(crawler, post)
+        for post_id, post in posts.items()
+    }
+    assert actual_links_by_post == expected_links_by_post
+
+    all_links = {link for links in actual_links_by_post.values() for link in links}
+    assert all_links == {
+        "https://onlyfans.com/les.chesticles/media",
+        "https://instagram.com/les.chesticles?igshid=YmMyMTA2M2Y=",
+        "https://www.reddit.com/user/les-chesticles",
+        "https://www.depop.com/leschesticles",
+        "https://onlyfans.com/u386107680",
+        "https://bunkr.cr/a/oFTJIwjx",
+    }
+
+    assert {
+        link
+        for link in all_links
+        if "instagram.com" not in link and "bunkr.cr" not in link
+    } == {
+        "https://onlyfans.com/les.chesticles/media",
+        "https://www.reddit.com/user/les-chesticles",
+        "https://www.depop.com/leschesticles",
+        "https://onlyfans.com/u386107680",
+    }
+
+
 def test_embeds_can_extract_google_drive_links() -> None:
     # https://github.com/jbsparrow/CyberDropDownloader/issues/775
     crawler = crawler_instances[crawlers.SimpCityCrawler]
