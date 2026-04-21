@@ -23,6 +23,7 @@ venv
 
 # Compiled package
 /dist/
+/.worktrees/
 
 # MacOS system files
 **.DS_Store
