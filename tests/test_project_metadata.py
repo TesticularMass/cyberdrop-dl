@@ -24,9 +24,18 @@ def _load_workflow_triggers(name: str) -> dict:
     return workflow[True]
 
 
-def _launcher_python_selectors(name: str) -> set[str]:
+def _launcher_python_selectors(name: str) -> list[str]:
     script = ROOT / "scripts" / "release" / name
-    return set(re.findall(r'-p "([^"]+)"', script.read_text(encoding="utf8")))
+    return re.findall(r'-p "([^"]+)"', script.read_text(encoding="utf8"))
+
+
+def _next_python_minor(version: str) -> str:
+    major, minor = version.split(".")
+    return f"{major}.{int(minor) + 1}"
+
+
+def _launcher_python_selector(versions: list[str]) -> str:
+    return f">={versions[0]},<{_next_python_minor(versions[-1])}"
 
 
 def _python_version_for_step(workflow: dict, job: str, step_name: str) -> str:
@@ -71,8 +80,11 @@ def test_auxiliary_workflows_use_supported_python_floor() -> None:
 
 
 def test_release_launchers_use_supported_python_selector() -> None:
-    expected = {">=3.13,<3.15"}
+    ci_workflow = _load_workflow("ci.yaml")
+    test_versions = sorted(str(item) for item in ci_workflow["jobs"]["test"]["strategy"]["matrix"]["python-version"])
+    expected = _launcher_python_selector(test_versions)
 
-    assert _launcher_python_selectors("start_windows.bat") == expected
-    assert _launcher_python_selectors("start_linux.sh") == expected
-    assert _launcher_python_selectors("start_macOS.command") == expected
+    assert test_versions == ["3.13", "3.14"]
+    assert _launcher_python_selectors("start_windows.bat") == [expected, expected]
+    assert _launcher_python_selectors("start_linux.sh") == [expected, expected]
+    assert _launcher_python_selectors("start_macOS.command") == [expected, expected]
