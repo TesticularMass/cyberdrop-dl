@@ -32,10 +32,9 @@ def test_runtime_metadata_targets_python_313_plus() -> None:
 
 def test_tox_and_ci_only_cover_supported_python_versions() -> None:
     tox_ini = (ROOT / "tox.ini").read_text(encoding="utf8")
-    assert "py313" in tox_ini
-    assert "py314" in tox_ini
-    assert "py311" not in tox_ini
-    assert "py312" not in tox_ini
+    envlist_line = next(line for line in tox_ini.splitlines() if line.startswith("envlist ="))
+    envlist = {item.strip() for item in envlist_line.split("=", 1)[1].split(",")}
+    assert envlist == {"py313", "py314"}
 
     ci_workflow = _load_workflow("ci.yaml")
     no_build_versions = {str(item) for item in ci_workflow["jobs"]["no-build"]["strategy"]["matrix"]["python-version"]}

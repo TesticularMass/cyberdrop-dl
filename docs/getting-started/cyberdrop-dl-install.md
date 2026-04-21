@@ -87,7 +87,7 @@ If you do not want to or can't use `uv`, you will need to install a compatible p
 If you don't have python, you can find and download it from their official website: [https://www.python.org/downloads/](https://www.python.org/downloads/)
 
 {% hint style="info" %}
-Cyberdrop-DL requires python 3.13 or newer. The **RECOMMENDED** version is 3.13+
+Cyberdrop-DL requires python 3.13 or newer, but less than 4.0. The **RECOMMENDED** version is 3.13
 {% endhint %}
 
 {% hint style="warning" %}

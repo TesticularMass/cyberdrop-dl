@@ -9,6 +9,11 @@ on:
       - 'cyberdrop_dl/**/*.py'
       - 'tests/**/*.py'
       - '.github/workflows/ci.yaml'
+      - 'pyproject.toml'
+      - 'tox.ini'
+      - '.python-version'
+      - '.github/workflows/apprise.yaml'
+      - '.github/workflows/publish-to-pypi.yaml'
   pull_request:
     branches:
       - master
@@ -17,6 +22,11 @@ on:
       - 'cyberdrop_dl/**/*.py'
       - 'tests/**/*.py'
       - '.github/workflows/ci.yaml'
+      - 'pyproject.toml'
+      - 'tox.ini'
+      - '.python-version'
+      - '.github/workflows/apprise.yaml'
+      - '.github/workflows/publish-to-pypi.yaml'
   workflow_dispatch:
 
 jobs:
