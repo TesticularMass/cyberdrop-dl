@@ -245,16 +245,13 @@ class ClientManager:
         from curl_cffi.requests import AsyncSession
         from curl_cffi.utils import CurlCffiWarning
 
-        loop = asyncio.get_running_loop()
-
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=CurlCffiWarning)
-            acurl = AsyncCurl(loop=loop)
+            acurl = AsyncCurl()
 
         proxy_or_none = str(proxy) if (proxy := self.manager.global_config.general.proxy) else None
 
         return AsyncSession(
-            loop=loop,
             async_curl=acurl,
             impersonate="chrome",
             verify=bool(self.ssl_context),
@@ -452,25 +449,25 @@ class ClientManager:
         await self.flaresolverr.close()
 
 
-async def _set_dns_resolver(loop: asyncio.AbstractEventLoop | None = None) -> None:
+async def _set_dns_resolver() -> None:
     if constants.DNS_RESOLVER is not None:
         return
     try:
-        await _test_async_resolver(loop)
+        await _test_async_resolver()
         constants.DNS_RESOLVER = aiohttp.AsyncResolver
     except Exception as e:
         constants.DNS_RESOLVER = aiohttp.ThreadedResolver
         log(f"Unable to setup asynchronous DNS resolver. Falling back to thread based resolver: {e}", 30)
 
 
-async def _test_async_resolver(loop: asyncio.AbstractEventLoop | None = None) -> None:
+async def _test_async_resolver() -> None:
     """Test aiodns with a DNS lookup."""
 
     # pycares (the underlying C extension library that aiodns uses) installs successfully in most cases,
     # but it fails to actually connect to DNS servers on some platforms (e.g., Android).
     import aiodns
 
-    async with aiodns.DNSResolver(loop=loop, timeout=5.0) as resolver:
+    async with aiodns.DNSResolver(timeout=5.0) as resolver:
         _ = await resolver.query_dns("github.com", "A")
 
 

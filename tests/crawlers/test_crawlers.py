@@ -5,12 +5,11 @@ import importlib.util
 import re
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple, NotRequired
+from typing import TYPE_CHECKING, NamedTuple, NotRequired, TypedDict
 from unittest import mock
 
 import pytest
 from pydantic import TypeAdapter
-from typing_extensions import TypedDict
 
 from cyberdrop_dl.data_structures import AbsoluteHttpURL
 from cyberdrop_dl.data_structures.url_objects import MediaItem, ScrapeItem

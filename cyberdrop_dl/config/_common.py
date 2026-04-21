@@ -1,15 +1,19 @@
 from pathlib import Path
 from typing import Any, Self
 
-from pydantic import Field as P_Field
-from pydantic.fields import _Unset
+from pydantic import AliasChoices, AliasPath, Field as P_Field
 
 from cyberdrop_dl.exceptions import InvalidYamlError
 from cyberdrop_dl.models import PathAliasModel, get_model_fields
 from cyberdrop_dl.utils import yaml
 
 
-def Field(default: Any, validation_alias: str = _Unset, **kwargs) -> Any:  # noqa: N802
+type ValidationAlias = str | AliasPath | AliasChoices | None
+
+
+def Field(default: Any, validation_alias: ValidationAlias = None, **kwargs) -> Any:  # noqa: N802
+    if validation_alias is None:
+        return P_Field(default=default, **kwargs)
     return P_Field(default=default, validation_alias=validation_alias, **kwargs)
 
 
