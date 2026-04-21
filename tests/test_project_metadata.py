@@ -83,8 +83,12 @@ def test_release_launchers_use_supported_python_selector() -> None:
     ci_workflow = _load_workflow("ci.yaml")
     test_versions = sorted(str(item) for item in ci_workflow["jobs"]["test"]["strategy"]["matrix"]["python-version"])
     expected = _launcher_python_selector(test_versions)
+    workflow_triggers = _load_workflow_triggers("ci.yaml")
+    release_launcher_path = "scripts/release/**"
 
     assert test_versions == ["3.13", "3.14"]
     assert _launcher_python_selectors("start_windows.bat") == [expected, expected]
     assert _launcher_python_selectors("start_linux.sh") == [expected, expected]
     assert _launcher_python_selectors("start_macOS.command") == [expected, expected]
+    assert release_launcher_path in workflow_triggers["push"]["paths"]
+    assert release_launcher_path in workflow_triggers["pull_request"]["paths"]

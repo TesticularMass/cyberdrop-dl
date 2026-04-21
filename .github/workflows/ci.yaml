@@ -15,6 +15,7 @@ on:
       - '.python-version'
       - '.github/workflows/apprise.yaml'
       - '.github/workflows/publish-to-pypi.yaml'
+      - 'scripts/release/**'
   pull_request:
     branches:
       - master
@@ -29,6 +30,7 @@ on:
       - '.python-version'
       - '.github/workflows/apprise.yaml'
       - '.github/workflows/publish-to-pypi.yaml'
+      - 'scripts/release/**'
   workflow_dispatch:
 
 jobs:
