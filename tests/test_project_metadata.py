@@ -16,6 +16,11 @@ def _load_workflow(name: str) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf8"))
 
 
+def _load_workflow_triggers(name: str) -> dict:
+    workflow = _load_workflow(name)
+    return workflow.get("on", workflow[True])
+
+
 def _python_version_for_step(workflow: dict, job: str, step_name: str) -> str:
     for step in workflow["jobs"][job]["steps"]:
         if step.get("name") == step_name:
@@ -36,10 +41,10 @@ def test_tox_and_ci_only_cover_supported_python_versions() -> None:
     envlist = {item.strip() for item in envlist_line.split("=", 1)[1].split(",")}
     assert envlist == {"py313", "py314"}
 
-    ci_workflow = _load_workflow("ci.yaml")
-    workflow_triggers = ci_workflow[True]
+    workflow_triggers = _load_workflow_triggers("ci.yaml")
     push_paths = set(workflow_triggers["push"]["paths"])
     pull_request_paths = set(workflow_triggers["pull_request"]["paths"])
+    ci_workflow = _load_workflow("ci.yaml")
     no_build_versions = {str(item) for item in ci_workflow["jobs"]["no-build"]["strategy"]["matrix"]["python-version"]}
     test_versions = {str(item) for item in ci_workflow["jobs"]["test"]["strategy"]["matrix"]["python-version"]}
 
