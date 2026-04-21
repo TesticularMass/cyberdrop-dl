@@ -41,8 +41,15 @@ def test_field_accepts_validation_alias_without_private_sentinel() -> None:
 
 
 def test_field_without_alias_still_passes_field_kwargs() -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as exc_info:
         ExampleSettings.model_validate({"Section": {"bounded_value": 0}})
+
+    assert any(
+        error["loc"] == ("Section", "bounded_value")
+        and error["type"] == "greater_than_equal"
+        and "greater than or equal to 1" in error["msg"]
+        for error in exc_info.value.errors()
+    )
 
 
 def test_load_file_writes_defaults_for_missing_config(tmp_path: Path) -> None:

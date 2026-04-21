@@ -39,12 +39,13 @@ async def test_test_async_resolver_uses_loopless_aiodns_api() -> None:
 async def test_dns_resolver_should_be_async_on_windows_macos_and_linux() -> None:
     constants.DNS_RESOLVER = None
 
-    async def fake_test_async_resolver() -> None:
-        return None
-
-    with mock.patch("cyberdrop_dl.managers.client_manager._test_async_resolver", side_effect=fake_test_async_resolver):
+    with mock.patch(
+        "cyberdrop_dl.managers.client_manager._test_async_resolver",
+        new=mock.AsyncMock(return_value=None),
+    ) as test_async_resolver:
         await client_manager._set_dns_resolver()
 
+    test_async_resolver.assert_awaited_once_with()
     assert constants.DNS_RESOLVER is resolver.AsyncResolver
 
 
