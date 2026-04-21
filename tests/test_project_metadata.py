@@ -1,3 +1,4 @@
+import re
 import tomllib
 from pathlib import Path
 
@@ -18,7 +19,14 @@ def _load_workflow(name: str) -> dict:
 
 def _load_workflow_triggers(name: str) -> dict:
     workflow = _load_workflow(name)
-    return workflow.get("on", workflow[True])
+    if "on" in workflow:
+        return workflow["on"]
+    return workflow[True]
+
+
+def _launcher_python_selectors(name: str) -> set[str]:
+    script = ROOT / "scripts" / "release" / name
+    return set(re.findall(r'-p "([^"]+)"', script.read_text(encoding="utf8")))
 
 
 def _python_version_for_step(workflow: dict, job: str, step_name: str) -> str:
@@ -60,3 +68,11 @@ def test_auxiliary_workflows_use_supported_python_floor() -> None:
 
     assert _python_version_for_step(apprise, "test_apprise", "Set up Python 3.13") == "3.13"
     assert _python_version_for_step(publish, "release", "Set up Python 3.13") == "3.13"
+
+
+def test_release_launchers_use_supported_python_selector() -> None:
+    expected = {">=3.13,<3.15"}
+
+    assert _launcher_python_selectors("start_windows.bat") == expected
+    assert _launcher_python_selectors("start_linux.sh") == expected
+    assert _launcher_python_selectors("start_macOS.command") == expected
