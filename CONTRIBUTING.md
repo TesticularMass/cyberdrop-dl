@@ -55,7 +55,7 @@ If everything is okay, your changes will be merged into the project.
 
 ## Setting up the development environment
 
-1. Install a [supported version of Python](https://www.python.org/downloads/). Cyberdrop-DL supports python `3.11` through `3.13`
+1. Install a [supported version of Python](https://www.python.org/downloads/). Cyberdrop-DL supports python `3.13` and newer
 
 2. Clone the repo
 

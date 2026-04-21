@@ -34,7 +34,7 @@ description = "Bulk downloader for multiple file hosts"
 license = "GPL-3.0-only"
 license-files = ["LICENSE"]
 readme = "README.md"
-requires-python = ">=3.11,<4"
+requires-python = ">=3.13,<4"
 version = "9.0.0"
 
 [project.scripts]
@@ -102,7 +102,7 @@ minversion = "8.4.1"
 [tool.ruff]
 exclude = ["cyberdrop_dl/dependencies/_browser_cookie3.py"]
 line-length = 120
-target-version = "py311"
+target-version = "py313"
 
 [tool.ruff.lint]
 select = [
