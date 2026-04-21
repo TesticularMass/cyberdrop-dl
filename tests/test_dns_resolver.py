@@ -1,5 +1,3 @@
-import sys
-import types
 from unittest import mock
 
 import pytest
@@ -13,21 +11,13 @@ from cyberdrop_dl.managers import client_manager
 async def test_dns_resolver_should_be_async_on_windows_macos_and_linux() -> None:
     constants.DNS_RESOLVER = None
 
-    class FakeDNSResolver:
-        def __init__(self, *args, **kwargs) -> None:
-            assert "loop" not in kwargs
+    async def fake_test_async_resolver() -> None:
+        return None
 
-        async def __aenter__(self):
-            return self
+    with mock.patch("cyberdrop_dl.managers.client_manager._test_async_resolver", side_effect=fake_test_async_resolver):
+        await client_manager._set_dns_resolver()
 
-        async def __aexit__(self, *args):
-            return False
-
-        async def query_dns(self, *args, **kwargs):
-            return []
-
-    sys.modules["aiodns"] = types.SimpleNamespace(DNSResolver=FakeDNSResolver)
-    await client_manager._test_async_resolver()
+    assert constants.DNS_RESOLVER is resolver.AsyncResolver
 
 
 @pytest.mark.asyncio
