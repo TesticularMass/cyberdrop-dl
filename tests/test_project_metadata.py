@@ -37,9 +37,14 @@ def test_tox_and_ci_only_cover_supported_python_versions() -> None:
     assert envlist == {"py313", "py314"}
 
     ci_workflow = _load_workflow("ci.yaml")
+    workflow_triggers = ci_workflow[True]
+    push_paths = set(workflow_triggers["push"]["paths"])
+    pull_request_paths = set(workflow_triggers["pull_request"]["paths"])
     no_build_versions = {str(item) for item in ci_workflow["jobs"]["no-build"]["strategy"]["matrix"]["python-version"]}
     test_versions = {str(item) for item in ci_workflow["jobs"]["test"]["strategy"]["matrix"]["python-version"]}
 
+    assert "poetry.lock" in push_paths
+    assert "poetry.lock" in pull_request_paths
     assert no_build_versions == {"3.13", "3.14"}
     assert test_versions == {"3.13", "3.14"}
 
