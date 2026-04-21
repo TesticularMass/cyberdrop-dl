@@ -9,7 +9,7 @@ import subprocess
 from dataclasses import asdict, dataclass
 from fractions import Fraction
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Required, Self, TypeAlias, TypedDict, overload
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Required, Self, TypedDict, overload
 
 import aiofiles
 import aiofiles.os
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
     from cyberdrop_dl.data_structures import AbsoluteHttpURL
 
-    _CMD: TypeAlias = Sequence[str | Path]
+    type _CMD = Sequence[str | Path]
 
 
 class Args:

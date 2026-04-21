@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, TypeAlias
+from typing import TYPE_CHECKING
 
 from rich.table import Table
 
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 SUPPORTED_SITES_URL = "https://script-ware.gitbook.io/cyberdrop-dl/reference/supported-websites"
-MarkdownRowDict: TypeAlias = dict[str, str]
+type MarkdownRowDict = dict[str, str]
 
 
 def get_crawlers_info_as_rich_table() -> Table:
@@ -41,7 +41,7 @@ def _make_html_rows() -> list[MarkdownRowDict]:
     html_rows: list[MarkdownRowDict] = []
     for row in rows:
         html_row_values = [r.replace("\n", "<br>") for r in row]
-        html_row_dict = MarkdownRowDict(zip(columns, html_row_values, strict=True))
+        html_row_dict = dict(zip(columns, html_row_values, strict=True))
         html_rows.append(html_row_dict)
     return html_rows
 

@@ -533,7 +533,7 @@ def is_html_or_text(content_type: str) -> bool:
 def _fallback_generator(media_item: MediaItem):
     fallbacks = media_item.fallbacks
 
-    def gen_fallback() -> Generator[AbsoluteHttpURL | None, aiohttp.ClientResponse, None]:
+    def gen_fallback() -> Generator[AbsoluteHttpURL | None, aiohttp.ClientResponse]:
         response = yield
         if fallbacks is None:
             return

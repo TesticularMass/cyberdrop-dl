@@ -143,13 +143,13 @@ def error_handling_context(self: Crawler | Downloader, item: ScrapeItem | MediaI
 
 
 @overload
-def error_handling_wrapper(
+def error_handling_wrapper[CrawerOrDownloader: Crawler | Downloader, Origin: ScrapeItem | MediaItem | URL, **P, R](
     func: Callable[Concatenate[CrawerOrDownloader, Origin, _P], _R],
 ) -> Callable[Concatenate[CrawerOrDownloader, Origin, _P], _R]: ...
 
 
 @overload
-def error_handling_wrapper(
+def error_handling_wrapper[CrawerOrDownloader: Crawler | Downloader, Origin: ScrapeItem | MediaItem | URL, **P, R](
     func: Callable[Concatenate[CrawerOrDownloader, Origin, _P], Coroutine[None, None, _R]],
 ) -> Callable[Concatenate[CrawerOrDownloader, Origin, _P], Coroutine[None, None, _R]]: ...
 
@@ -478,7 +478,7 @@ class HasAsyncClose(Protocol):
 C = TypeVar("C", bound=HasAsyncClose | HasClose)
 
 
-async def close_if_defined(obj: C) -> C:
+async def close_if_defined[C: HasAsyncClose | HasClose](obj: C) -> C:
     if not isinstance(obj, dataclasses.Field):
         await obj.close() if inspect.iscoroutinefunction(obj.close) else obj.close()
     return constants.NOT_DEFINED
@@ -521,7 +521,7 @@ def is_blob_or_svg(link: str) -> bool:
     return any(link.startswith(x) for x in _BLOB_OR_SVG)
 
 
-def unique(iterable: Iterable[_T], *, hashable: bool = True) -> Iterable[_T]:
+def unique[T](iterable: Iterable[_T], *, hashable: bool = True) -> Iterable[_T]:
     """Yields unique values from iterable, keeping original order"""
     if hashable:
         seen: set[_T] | list[_T] = set()
@@ -536,7 +536,7 @@ def unique(iterable: Iterable[_T], *, hashable: bool = True) -> Iterable[_T]:
             yield value
 
 
-def get_valid_kwargs(
+def get_valid_kwargs[T](
     func: Callable[..., Any], kwargs: Mapping[str, _T], accept_kwargs: bool = True
 ) -> Mapping[str, _T]:
     """Get the subset of ``kwargs`` that are valid params for ``func`` and their values are not `None`
@@ -549,11 +549,11 @@ def get_valid_kwargs(
     return {k: v for k, v in kwargs.items() if k in params.keys() and v is not None}
 
 
-def call_w_valid_kwargs(cls: Callable[..., _R], kwargs: Mapping[str, Any]) -> _R:
+def call_w_valid_kwargs[R](cls: Callable[..., _R], kwargs: Mapping[str, Any]) -> _R:
     return cls(**get_valid_kwargs(cls, kwargs))
 
 
-def type_adapter(func: Callable[..., _R], aliases: dict[str, str] | None = None) -> Callable[[dict[str, Any]], _R]:
+def type_adapter[R](func: Callable[..., _R], aliases: dict[str, str] | None = None) -> Callable[[dict[str, Any]], _R]:
     """Like `pydantic.TypeAdapter`, but without type validation of attributes (faster)
 
     Ignores attributes with `None` as value"""

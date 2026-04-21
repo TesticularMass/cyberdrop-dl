@@ -86,7 +86,7 @@ KNOWN_BAD_URLS = {
 }
 
 
-def retry(func: Callable[P, Coroutine[None, None, R]]) -> Callable[P, Coroutine[None, None, R]]:
+def retry[**P, R](func: Callable[P, Coroutine[None, None, R]]) -> Callable[P, Coroutine[None, None, R]]:
     """This function is a wrapper that handles retrying for failed downloads."""
 
     @wraps(func)

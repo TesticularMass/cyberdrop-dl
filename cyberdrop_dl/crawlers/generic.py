@@ -26,7 +26,7 @@ R = TypeVar("R")
 VIDEO_SELECTOR = "video > source"
 
 
-def log_unsupported_wrapper(
+def log_unsupported_wrapper[**P, R](
     func: Callable[P, Coroutine[None, None, R]],
 ) -> Callable[P, Coroutine[None, None, R | None]]:
     @wraps(func)

@@ -1,12 +1,12 @@
 from pathlib import Path
 from typing import Any, Self
 
-from pydantic import AliasChoices, AliasPath, Field as P_Field
+from pydantic import AliasChoices, AliasPath
+from pydantic import Field as P_Field
 
 from cyberdrop_dl.exceptions import InvalidYamlError
 from cyberdrop_dl.models import PathAliasModel, get_model_fields
 from cyberdrop_dl.utils import yaml
-
 
 type ValidationAlias = str | AliasPath | AliasChoices | None
 

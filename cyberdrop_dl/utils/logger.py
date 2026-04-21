@@ -290,7 +290,7 @@ def _setup_startup_logger() -> Generator[None]:
         raise
 
 
-def catch_exceptions(func: Callable[_P, _ExitCode]) -> Callable[_P, _ExitCode]:
+def catch_exceptions[**P](func: Callable[_P, _ExitCode]) -> Callable[_P, _ExitCode]:
     """Decorator to automatically log uncaught exceptions.
 
     Exceptions will be logged to a file in the current working directory

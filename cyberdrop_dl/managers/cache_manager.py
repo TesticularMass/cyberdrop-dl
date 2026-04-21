@@ -36,7 +36,7 @@ class CacheManager:
         from cyberdrop_dl.supported_domains import SUPPORTED_FORUMS, SUPPORTED_WEBSITES
 
         rate_limiting_options = self.manager.config_manager.global_settings_data.rate_limiting_options
-        urls_expire_after = build_urls_expire_after(
+        build_urls_expire_after(
             supported_forums=SUPPORTED_FORUMS,
             supported_websites=SUPPORTED_WEBSITES,
             file_host_cache_expire_after=rate_limiting_options.file_host_cache_expire_after,

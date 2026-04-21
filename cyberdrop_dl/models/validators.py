@@ -9,7 +9,6 @@ from typing import (
     ParamSpec,
     SupportsIndex,
     SupportsInt,
-    TypeAlias,
     TypedDict,
     TypeVar,
     overload,
@@ -26,7 +25,7 @@ if TYPE_CHECKING:
 _DATE_PATTERN_REGEX = r"(\d+)\s*(second|seconds|minute|minutes|hour|hours|day|days|week|weeks|month|months|year|years)"
 _DATE_PATTERN = re.compile(_DATE_PATTERN_REGEX, re.IGNORECASE)
 _BYTE_SIZE_ADAPTER = TypeAdapter(ByteSize)
-_ConvertibleToInt: TypeAlias = str | SupportsInt | SupportsIndex
+type _ConvertibleToInt = str | SupportsInt | SupportsIndex
 P = ParamSpec("P")
 T = TypeVar("T")
 R = TypeVar("R")
@@ -122,7 +121,7 @@ def _parse_as_timedelta(input_date: timedelta | int | str) -> timedelta | str:
 
 
 @overload
-def falsy_as(value: T, falsy_value: T2, func: None = None) -> T | T2: ...
+def falsy_as[T, T2](value: T, falsy_value: T2, func: None = None) -> T | T2: ...
 
 
 @overload
@@ -154,15 +153,15 @@ def falsy_as(
     return func(value_, *args, **kwargs)
 
 
-def falsy_as_list(value: list[T]) -> list[T]:
+def falsy_as_list[T](value: list[T]) -> list[T]:
     return falsy_as(value, [])
 
 
-def falsy_as_none(value: T) -> T | None:
+def falsy_as_none[T](value: T) -> T | None:
     return falsy_as(value, None)
 
 
-def falsy_as_dict(value: dict[str, T]) -> dict[str, T]:
+def falsy_as_dict[T](value: dict[str, T]) -> dict[str, T]:
     return falsy_as(value, {})
 
 

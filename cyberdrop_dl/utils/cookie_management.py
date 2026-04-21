@@ -37,7 +37,7 @@ COOKIE_ERROR_FOOTER = "\n\nNothing has been saved."
 CHROMIUM_BROWSERS = ["chrome", "chromium", "opera", "opera_gx", "brave", "edge", "vivaldi", "arc"]
 
 
-def cookie_wrapper(func: Callable[P, R]) -> Callable[P, R]:
+def cookie_wrapper[**P, R](func: Callable[P, R]) -> Callable[P, R]:
     """Wrapper handles errors for cookie extraction."""
 
     @wraps(func)

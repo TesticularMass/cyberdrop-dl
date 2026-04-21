@@ -10,7 +10,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from functools import partial, wraps
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Concatenate, Literal, NamedTuple, ParamSpec, TypeAlias, TypeVar, final
+from typing import TYPE_CHECKING, Any, ClassVar, Concatenate, Literal, NamedTuple, ParamSpec, TypeVar, final
 
 import yarl
 from aiolimiter import AsyncLimiter
@@ -56,9 +56,9 @@ if TYPE_CHECKING:
     from cyberdrop_dl.managers.manager import Manager
 
 
-OneOrTuple: TypeAlias = T | tuple[T, ...]
-SupportedPaths: TypeAlias = dict[str, OneOrTuple[str]]
-SupportedDomains: TypeAlias = OneOrTuple[str]
+type OneOrTuple[T] = T | tuple[T, ...]
+type SupportedPaths = dict[str, OneOrTuple[str]]
+type SupportedDomains = OneOrTuple[str]
 RateLimit = tuple[float, float]
 
 
@@ -976,12 +976,12 @@ class Site(NamedTuple):
 _CrawlerT = TypeVar("_CrawlerT", bound=Crawler)
 
 
-def create_crawlers(urls: Iterable[str] | Iterable[yarl.URL], base_crawler: type[_CrawlerT]) -> set[type[_CrawlerT]]:
+def create_crawlers[CrawlerT: Crawler](urls: Iterable[str] | Iterable[yarl.URL], base_crawler: type[_CrawlerT]) -> set[type[_CrawlerT]]:
     """Creates new subclasses of the base crawler from the urls"""
     return {_create_subclass(url, base_crawler) for url in urls}
 
 
-def _create_subclass(url: yarl.URL | str, base_class: type[_CrawlerT]) -> type[_CrawlerT]:
+def _create_subclass[CrawlerT: Crawler](url: yarl.URL | str, base_class: type[_CrawlerT]) -> type[_CrawlerT]:
     if isinstance(url, str):
         url = AbsoluteHttpURL(url)
     assert is_absolute_http_url(url)

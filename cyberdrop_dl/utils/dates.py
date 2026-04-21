@@ -4,7 +4,7 @@ import datetime
 import email.utils
 import warnings
 from functools import lru_cache
-from typing import TYPE_CHECKING, Literal, NewType, ParamSpec, TypeAlias, TypeVar
+from typing import TYPE_CHECKING, Literal, NewType, ParamSpec, TypeVar
 
 import dateparser.date
 
@@ -12,8 +12,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 TimeStamp = NewType("TimeStamp", int)
-DateOrder: TypeAlias = Literal["DMY", "DYM", "MDY", "MYD", "YDM", "YMD"]
-ParserKind: TypeAlias = Literal["timestamp", "relative-time", "custom-formats", "absolute-time", "no-spaces-time"]
+type DateOrder = Literal["DMY", "DYM", "MDY", "MYD", "YDM", "YMD"]
+type ParserKind = Literal["timestamp", "relative-time", "custom-formats", "absolute-time", "no-spaces-time"]
 
 _S = TypeVar("_S", bound=str)
 _P = ParamSpec("_P")
@@ -133,7 +133,7 @@ def _normalize(date_time: datetime.datetime) -> datetime.datetime:
     return date_time
 
 
-def _suppress_warnings(func: Callable[_P, _R]) -> Callable[_P, _R]:
+def _suppress_warnings[**P, R: datetime.datetime | None](func: Callable[_P, _R]) -> Callable[_P, _R]:
     def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
         with warnings.catch_warnings(record=True):
             warnings.filterwarnings("ignore", category=DeprecationWarning)

@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     M = TypeVar("M", bound=BaseModel)
 
 
-def update_model(model: M, **kwargs: Any) -> M:
+def update_model[M: BaseModel](model: M, **kwargs: Any) -> M:
     return model.model_validate(model.model_dump() | kwargs)
 
 

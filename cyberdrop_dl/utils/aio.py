@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import weakref
 from stat import S_ISREG
-from typing import TYPE_CHECKING, Final, Generic, TypeVar, cast
+from typing import TYPE_CHECKING, Final, TypeVar, cast
 
 if TYPE_CHECKING:
     import pathlib
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Sequence
 
 
-async def gather(coros: Sequence[Awaitable[_T]], batch_size: int = 10) -> list[_T]:
+async def gather[T](coros: Sequence[Awaitable[_T]], batch_size: int = 10) -> list[_T]:
     """Like `asyncio.gather`, but creates tasks lazily to minimize event loop overhead.
 
     This function ensures there are never more than `batch_size` tasks created at any given time.
@@ -79,7 +79,7 @@ async def get_size(path: pathlib.Path) -> int | None:
             return stat_result.st_size
 
 
-class WeakAsyncLocks(Generic[_T]):
+class WeakAsyncLocks[T]:
     """A WeakValueDictionary wrapper for asyncio.Locks.
 
     Unused locks are automatically garbage collected. When trying to retrieve a
@@ -89,7 +89,7 @@ class WeakAsyncLocks(Generic[_T]):
     __slots__ = ("__locks",)
 
     def __init__(self) -> None:
-        self.__locks: Final = weakref.WeakValueDictionary[_T, asyncio.Lock]()
+        self.__locks: Final = weakref.WeakValueDictionary[T, asyncio.Lock]()
 
     def __getitem__(self, key: _T, /) -> asyncio.Lock:
         lock = self.__locks.get(key)

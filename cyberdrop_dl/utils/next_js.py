@@ -5,14 +5,14 @@ import json
 import re
 from collections.abc import Generator
 from enum import IntEnum
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
     from bs4 import BeautifulSoup
 
-ChunkID: TypeAlias = str
+type ChunkID = str
 
 
 class FlightDataType(IntEnum):

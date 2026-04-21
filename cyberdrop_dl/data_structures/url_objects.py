@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
     from cyberdrop_dl.managers.manager import Manager
 
-    def copy_signature(target: Callable[_P, _R]) -> Callable[[Callable[..., _T]], Callable[_P, _T]]:
+    def copy_signature[**P, R](target: Callable[_P, _R]) -> Callable[[Callable[..., _T]], Callable[_P, _T]]:
         def decorator(func: Callable[..., _T]) -> Callable[_P, _T]:
             @functools.wraps(func)
             def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _T:

@@ -37,7 +37,7 @@ console = Console()
 ERROR_PREFIX = Text("ERROR: ", style="bold red")
 
 
-def repeat_until_done(func: Callable[P, R]) -> Callable[P, R]:
+def repeat_until_done[**P, R](func: Callable[P, R]) -> Callable[P, R]:
     @wraps(func)
     def wrapper(*args, **kwargs) -> R:
         done = False

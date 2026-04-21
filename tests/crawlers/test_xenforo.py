@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from unittest import mock
 
 import pytest
@@ -16,7 +16,6 @@ from cyberdrop_dl.managers.manager import Manager
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
-    from pathlib import Path
 
 
 def _item(url: str) -> ScrapeItem:

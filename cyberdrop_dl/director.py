@@ -46,7 +46,7 @@ class ExitCode(IntEnum):
 _C = ExitCode
 
 
-def _ui_error_handling_wrapper(
+def _ui_error_handling_wrapper[**P, R](
     func: Callable[P, Coroutine[None, None, R]],
 ) -> Callable[P, Coroutine[None, None, R | None]]:
     """Wrapper handles errors from the main UI."""
@@ -215,8 +215,7 @@ def _setup_manager(args: Sequence[str] | None = None) -> Manager:
 
 def _loop_factory() -> asyncio.AbstractEventLoop:
     loop = asyncio.new_event_loop()
-    if sys.version_info > (3, 12):
-        loop.set_task_factory(asyncio.eager_task_factory)
+    loop.set_task_factory(asyncio.eager_task_factory)
     return loop
 
 

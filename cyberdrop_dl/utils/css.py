@@ -32,7 +32,7 @@ class CssAttributeSelector(NamedTuple):
         return select(soup, self.element, self.attribute)
 
 
-def not_none(func: Callable[_P, _R | None]) -> Callable[_P, _R]:
+def not_none[**P, R](func: Callable[_P, _R | None]) -> Callable[_P, _R]:
     @functools.wraps(func)
     def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
         result = func(*args, **kwargs)
