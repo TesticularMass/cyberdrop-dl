@@ -183,6 +183,7 @@ class DownloadClient:
         self, url: AbsoluteHttpURL, domain: str, headers: dict[str, str]
     ) -> AsyncGenerator[AbstractResponse | aiohttp.ClientResponse]:
         if domain in _USE_IMPERSONATION:
+            self.client_manager.check_curl_cffi_is_available()
             resp = await self.client_manager._curl_session.get(str(url), stream=True, headers=headers)
             try:
                 yield AbstractResponse.from_resp(resp)

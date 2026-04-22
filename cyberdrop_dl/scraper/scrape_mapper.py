@@ -35,8 +35,8 @@ if TYPE_CHECKING:
     from cyberdrop_dl.managers.manager import Manager
 
 existing_crawlers: dict[str, Crawler] = {}
-_seen_urls: set[AbsoluteHttpURL] = set()
-_crawlers_disabled_at_runtime: set[str] = set()
+_existing_crawlers_owner: object | None = None
+_existing_crawlers_include_generics = False
 
 
 class ScrapeMapper:
@@ -51,6 +51,8 @@ class ScrapeMapper:
         self.using_input_file = False
         self.groups = set()
         self.count = 0
+        self._seen_urls: set[AbsoluteHttpURL] = set()
+        self._crawlers_disabled_at_runtime: set[str] = set()
         self.fallback_generic: GenericCrawler
         self.real_debrid: RealDebridCrawler
 
@@ -275,9 +277,9 @@ class ScrapeMapper:
         if not is_valid_url(scrape_item):
             return False
 
-        if scrape_item.url in _seen_urls:
+        if scrape_item.url in self._seen_urls:
             return False
-        _seen_urls.add(scrape_item.url)
+        self._seen_urls.add(scrape_item.url)
 
         if (
             is_in_domain_list(scrape_item, BlockedDomains.partial_match)
@@ -317,13 +319,13 @@ class ScrapeMapper:
 
         """
 
-        if domain in _crawlers_disabled_at_runtime:
+        if domain in self._crawlers_disabled_at_runtime:
             return
 
         crawler = next((crawler for crawler in self.existing_crawlers.values() if crawler.DOMAIN == domain), None)
         if crawler and not crawler.disabled:
             crawler.disabled = True
-            _crawlers_disabled_at_runtime.add(domain)
+            self._crawlers_disabled_at_runtime.add(domain)
             return crawler
 
 
@@ -367,12 +369,20 @@ def get_crawlers_mapping(manager: Manager | None = None, include_generics: bool 
     from cyberdrop_dl.crawlers import CRAWLERS
     from cyberdrop_dl.managers.mock_manager import MOCK_MANAGER
 
+    global _existing_crawlers_include_generics, _existing_crawlers_owner, existing_crawlers
     manager_ = manager or MOCK_MANAGER
-    global existing_crawlers
-    if not existing_crawlers:
+    if (
+        manager is not None
+        or not existing_crawlers
+        or _existing_crawlers_owner is not manager_
+        or _existing_crawlers_include_generics != include_generics
+    ):
+        existing_crawlers.clear()
         for crawler in CRAWLERS:
             crawler_instance = crawler(manager_)
             register_crawler(existing_crawlers, crawler_instance, include_generics)
+        _existing_crawlers_owner = manager_
+        _existing_crawlers_include_generics = include_generics
     return existing_crawlers
 
 

@@ -77,16 +77,17 @@ def get_cookies_from_browsers(manager: Manager, *, browser: BROWSERS, domains: l
         raise ValueError(msg)
 
     extractor_name = browser.lower()
-    domains_to_extract: list[str] = domains or manager.config_manager.settings_data.browser_cookies.sites
+    domains_to_extract = list(domains or manager.config_manager.settings_data.browser_cookies.sites)
     if "all" in domains_to_extract:
         domains_to_extract.remove("all")
         domains_to_extract.extend(SUPPORTED_SITES_DOMAINS)
-    elif "all_forums" in domains_to_extract:
+    if "all_forums" in domains_to_extract:
         domains_to_extract.remove("all_forums")
         domains_to_extract.extend(SUPPORTED_FORUMS.values())
-    elif "all_file_hosts" in domains_to_extract:
+    if "all_file_hosts" in domains_to_extract:
         domains_to_extract.remove("all_file_hosts")
         domains_to_extract.extend(SUPPORTED_WEBSITES.values())
+    domains_to_extract = list(dict.fromkeys(domains_to_extract))
 
     extracted_cookies = extract_cookies(extractor_name)
     if not extracted_cookies:

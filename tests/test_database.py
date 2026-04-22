@@ -2,17 +2,21 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
+import aiosqlite
 import pytest
 
 from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL, ScrapeItem
+from cyberdrop_dl.database.tables.definitions import create_history
+from cyberdrop_dl.database.tables.history import HistoryTable
 from cyberdrop_dl.scraper import scrape_mapper
 from cyberdrop_dl.scraper.scrape_mapper import _create_item_from_row
 from cyberdrop_dl.utils.utilities import parse_url
 
 if TYPE_CHECKING:
-    import aiosqlite
+    from cyberdrop_dl.database import Database
 
 
 _MOCK_ROW = {
@@ -138,6 +142,40 @@ def test_create_db_path(url: str, expected: str) -> None:
     assert crawler
     path = crawler.create_db_path(url_)
     assert path == expected
+
+
+async def test_check_filename_exists_reads_exists_scalar(tmp_path: Path) -> None:
+    db_conn = await aiosqlite.connect(tmp_path / "history.db")
+    db_conn.row_factory = aiosqlite.Row
+    await db_conn.execute(create_history)
+    await db_conn.execute(
+        """
+        INSERT INTO media (
+            domain, url_path, referer, album_id, download_path,
+            download_filename, original_filename, completed, created_at, completed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "example.com",
+            "/media/1",
+            "https://example.com/post/1",
+            None,
+            str(tmp_path),
+            "existing-file.mp4",
+            "original-file.mp4",
+            1,
+            None,
+            None,
+        ),
+    )
+    await db_conn.commit()
+    history_table = HistoryTable(cast("Database", SimpleNamespace(_db_conn=db_conn, ignore_history=False)))
+
+    try:
+        assert await history_table.check_filename_exists("existing-file.mp4") is True
+        assert await history_table.check_filename_exists("missing-file.mp4") is False
+    finally:
+        await db_conn.close()
 
 
 class TestGetDownloadPath:

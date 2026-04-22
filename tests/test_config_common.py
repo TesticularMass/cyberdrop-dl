@@ -62,3 +62,11 @@ def test_load_file_writes_defaults_for_missing_config(tmp_path: Path) -> None:
     contents = config_path.read_text(encoding="utf8")
     assert "section:" in contents
     assert "alias_value: default" in contents
+
+
+def test_load_file_rejects_non_mapping_yaml(tmp_path: Path) -> None:
+    config_path = tmp_path / "example.yaml"
+    config_path.write_text("[]\n", encoding="utf8")
+
+    with pytest.raises(ValidationError):
+        ExampleSettings.load_file(config_path, update_if_has_string="obsolete-marker")

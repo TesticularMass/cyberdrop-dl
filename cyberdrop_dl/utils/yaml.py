@@ -55,15 +55,15 @@ def save(file: Path, data: BaseModel | dict[str, Any]) -> None:
     )
 
 
-def load(file: Path, *, create: bool = False) -> dict[str, Any]:
-    """Loads a yaml file and returns it as a dict."""
+def load(file: Path, *, create: bool = False) -> Any:
+    """Loads a yaml file and returns its parsed contents."""
     if create:
         file.parent.mkdir(parents=True, exist_ok=True)
         if not file.is_file():
             file.touch()
     try:
         yaml_values = yaml.safe_load(file.read_text(encoding="utf8"))
-        return yaml_values or {}
+        return {} if yaml_values is None else yaml_values
     except KeyboardInterrupt:
         raise
     except Exception as e:

@@ -108,6 +108,8 @@ class Manager:
         """Adjusts settings for SimpCity update."""
         simp_settings_adjusted = self.cache_manager.get("simp_settings_adjusted")
         if not simp_settings_adjusted:
+            original_loaded_config = self.config_manager.loaded_config
+            original_settings = self.config_manager.settings
             for config in self.config_manager.get_configs():
                 if config != self.config_manager.loaded_config:
                     self.config_manager.change_config(config)
@@ -120,6 +122,16 @@ class Manager:
             if rate_limit_options.max_simultaneous_downloads_per_domain > 15:
                 rate_limit_options.max_simultaneous_downloads_per_domain = 5
             self.config_manager.write_updated_global_settings_config()
+
+            if (
+                self.config_manager.loaded_config != original_loaded_config
+                or self.config_manager.settings != original_settings
+            ):
+                self.config_manager.loaded_config = original_loaded_config
+                self.config_manager.startup()
+                self.args_consolidation()
+                self.path_manager.startup()
+                self.log_manager = LogManager(self)
         self.cache_manager.save("simp_settings_adjusted", True)
 
     """~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"""

@@ -23,12 +23,14 @@ def test_next_js_parser(soup: BeautifulSoup) -> None:
 
 def test_next_js_find(soup: BeautifulSoup) -> None:
     next_data = next_js.extract(soup)
-    episode_keys = "slug", "title", "playGroups"
+    episode_keys = "slug", "title", "episodes", "chapters"
     ep = next_js.find(next_data, *episode_keys)
     assert isinstance(ep, dict)
     assert set(episode_keys).issubset(ep.keys())
+    assert "playlistGroups" in ep or "playGroups" in ep
     all_episodes = list(next_js.ifind(next_data, *episode_keys))
     assert len(all_episodes) > 74
     for ep in all_episodes:
         assert isinstance(ep, dict)
         assert set(episode_keys).issubset(ep.keys())
+        assert "playlistGroups" in ep or "playGroups" in ep

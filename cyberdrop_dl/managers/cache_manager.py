@@ -30,7 +30,12 @@ class CacheManager:
 
     def load(self) -> None:
         """Loads the cache file into memory."""
-        self._cache = yaml.load(self.cache_file)
+        cache_data = yaml.load(self.cache_file)
+        if not isinstance(cache_data, dict):
+            self._cache = {}
+            yaml.save(self.cache_file, self._cache)
+            return
+        self._cache = cache_data
 
     def load_request_cache(self) -> None:
         from cyberdrop_dl.supported_domains import SUPPORTED_FORUMS, SUPPORTED_WEBSITES

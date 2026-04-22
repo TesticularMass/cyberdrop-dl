@@ -182,7 +182,7 @@ class Downloader:
     async def run(self, media_item: MediaItem) -> bool:
         """Runs the download loop."""
 
-        if media_item.url.path in self.processed_items and not self._ignore_history:
+        if media_item.db_path in self.processed_items and not self._ignore_history:
             return False
 
         async with self._download_context(media_item):
@@ -190,7 +190,7 @@ class Downloader:
 
     @error_handling_wrapper
     async def download_hls(self, media_item: MediaItem, m3u8_group: RenditionGroup) -> None:
-        if media_item.url.path in self.processed_items and not self._ignore_history:
+        if media_item.db_path in self.processed_items and not self._ignore_history:
             return
 
         try:

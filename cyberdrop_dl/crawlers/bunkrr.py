@@ -39,7 +39,6 @@ VIDEO_AND_IMAGE_EXTS: set[str] = FILE_FORMATS["Images"] | FILE_FORMATS["Videos"]
 HOST_OPTIONS: set[str] = {"bunkr.site", "bunkr.cr", "bunkr.ph"}
 DEEP_SCRAPE_CDNS: set[str] = {"burger", "milkshake"}  # CDNs under maintanance, ignore them and try to get a cached URL
 FILE_KEYS = "id", "name", "original", "slug", "type", "extension", "size", "timestamp", "thumbnail", "cdnEndpoint"
-known_bad_hosts: set[str] = set()
 
 
 def _make_album_parser(keys: tuple[str, ...]) -> Callable[[BeautifulSoup], Generator[File]]:
@@ -125,6 +124,7 @@ class BunkrrCrawler(Crawler):
     def __post_init__(self) -> None:
         self.switch_host_locks: aio.WeakAsyncLocks[str] = aio.WeakAsyncLocks()
         self.known_good_url: AbsoluteHttpURL | None = None
+        self.known_bad_hosts: set[str] = set()
         self._parse_album_files = _make_album_parser(FILE_KEYS)
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
@@ -248,8 +248,8 @@ class BunkrrCrawler(Crawler):
                 soup = await resp.soup()
 
         except (ClientConnectorError, DDOSGuardError):
-            known_bad_hosts.add(url.host)
-            if not HOST_OPTIONS - known_bad_hosts:
+            self.known_bad_hosts.add(url.host)
+            if not HOST_OPTIONS - self.known_bad_hosts:
                 raise
         else:
             if not self.known_good_url:
@@ -269,13 +269,13 @@ class BunkrrCrawler(Crawler):
             return await self.request_soup(url.with_host(self.known_good_url.host))
 
         async with self.switch_host_locks[url.host]:
-            if url.host not in known_bad_hosts:
+            if url.host not in self.known_bad_hosts:
                 if soup := await self._try_request_soup(url):
                     return soup
 
-        for host in HOST_OPTIONS - known_bad_hosts:
+        for host in HOST_OPTIONS - self.known_bad_hosts:
             async with self.switch_host_locks[host]:
-                if host in known_bad_hosts:
+                if host in self.known_bad_hosts:
                     continue
 
                 if soup := await self._try_request_soup(url.with_host(host)):

@@ -56,9 +56,6 @@ _DOWNLOAD_ERROR_ETAGS = {
     "5a56b09d-1485eb": "eFukt Video removed",
 }
 
-_crawler_errors: dict[str, int] = defaultdict(int)
-
-
 if TYPE_CHECKING:
     from cyberdrop_dl.managers.manager import Manager
 
@@ -130,6 +127,7 @@ class ClientManager:
         self.cookies = aiohttp.CookieJar(quote_cookie=False)
         self.rate_limits: dict[str, AsyncLimiter] = {}
         self.download_slots: dict[str, int] = {}
+        self._crawler_errors: dict[str, int] = defaultdict(int)
         self.global_rate_limiter = AsyncLimiter(self.rate_limiting_options.rate_limit, 1)
         self.global_download_slots = asyncio.Semaphore(self.rate_limiting_options.max_simultaneous_downloads)
         self.scraper_client = ScraperClient(self)
@@ -291,7 +289,7 @@ class ClientManager:
         return conn
 
     def check_domain_errors(self, domain: str) -> None:
-        if _crawler_errors[domain] >= env.MAX_CRAWLER_ERRORS:
+        if self._crawler_errors[domain] >= env.MAX_CRAWLER_ERRORS:
             if crawler := self.manager.scrape_mapper.disable_crawler(domain):
                 msg = (
                     f"{crawler.__class__.__name__} has been disabled after too many errors. "
@@ -306,11 +304,11 @@ class ClientManager:
         try:
             yield
         except DDOSGuardError:
-            _crawler_errors[domain] += 1
+            self._crawler_errors[domain] += 1
             raise
         else:
             # we could potentially reset the counter here
-            # _crawler_errors[domain] = 0
+            # self._crawler_errors[domain] = 0
             pass
         finally:
             pass
