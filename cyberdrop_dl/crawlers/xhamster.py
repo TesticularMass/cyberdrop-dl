@@ -209,20 +209,40 @@ class XhamsterCrawler(Crawler):
 
         initials = await self._get_window_initials(scrape_item.url)
         video = _parse_video(initials)
+        best_format = video.best_mp4 or video.best_hls
+        if best_format is None:
+            raise ScrapeError(422, "No video sources found")
+
         scrape_item.possible_datetime = video.created
         custom_filename = self.create_custom_filename(
             video.title,
             ".mp4",
             file_id=video.id,
-            video_codec=video.best_mp4.codec.name.lower(),
-            resolution=video.best_mp4.resolution,
+            video_codec=best_format.codec.name.lower(),
+            resolution=best_format.resolution,
         )
+        if video.best_mp4 is not None:
+            await self.handle_file(
+                scrape_item.url,
+                scrape_item,
+                filename=video.id + ".mp4",
+                custom_filename=custom_filename,
+                debrid_link=video.best_mp4.url,
+            )
+            return
+
+        assert video.best_hls is not None
+        try:
+            hls, _ = await self.get_m3u8_from_playlist_url(video.best_hls.url)
+        except (AssertionError, StopIteration):
+            hls = await self.get_m3u8_from_index_url(video.best_hls.url)
+
         await self.handle_file(
             scrape_item.url,
             scrape_item,
             filename=video.id + ".mp4",
             custom_filename=custom_filename,
-            debrid_link=video.best_mp4.url,
+            m3u8=hls,
         )
 
     async def _get_window_initials(self, url: AbsoluteHttpURL) -> dict[str, Any]:
@@ -251,7 +271,7 @@ class Video:
     title: str
     created: int
     best_hls: Format | None
-    best_mp4: Format
+    best_mp4: Format | None
 
 
 def _parse_video(initials: dict[str, Any]) -> Video:
@@ -271,7 +291,7 @@ def _parse_video(initials: dict[str, Any]) -> Video:
         title=video["title"],
         created=video.get("created") or video["addTime"],
         best_hls=max(hls_sources, default=None),
-        best_mp4=max(mp4_sources),
+        best_mp4=max(mp4_sources, default=None),
     )
 
 
