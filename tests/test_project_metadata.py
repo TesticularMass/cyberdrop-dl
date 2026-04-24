@@ -5,6 +5,7 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+UV_VERSION = "0.11.7"
 
 
 def _load_pyproject() -> dict:
@@ -69,6 +70,7 @@ def test_runtime_metadata_targets_python_313_plus() -> None:
     classifiers = set(pyproject["project"]["classifiers"])
     assert pyproject["project"]["requires-python"] == ">=3.13,<4"
     assert pyproject["project"]["version"] == _latest_changelog_version()
+    assert pyproject["build-system"]["requires"] == [f"uv_build>={UV_VERSION},<0.12"]
     assert pyproject["tool"]["ruff"]["target-version"] == "py313"
     assert (ROOT / ".python-version").read_text(encoding="utf8").strip() == "3.13"
     assert "Programming Language :: Python :: 3.13" in classifiers
@@ -117,6 +119,8 @@ def test_tox_and_ci_only_cover_supported_python_versions() -> None:
     assert "setup-uv@v6" not in ci_text
     assert str(no_build_setup["uses"]) == "astral-sh/setup-uv@v7"
     assert str(test_setup["uses"]) == "astral-sh/setup-uv@v7"
+    assert str(no_build_setup["with"]["version"]) == UV_VERSION
+    assert str(test_setup["with"]["version"]) == UV_VERSION
     assert str(no_build_setup["with"]["enable-cache"]).lower() == "false"
     assert str(no_build_setup["with"]["ignore-empty-workdir"]).lower() == "true"
 
@@ -126,8 +130,10 @@ def test_auxiliary_workflows_use_supported_uv_baseline() -> None:
     apprise_triggers = _load_workflow_triggers("apprise.yaml")
     apprise_text = _load_workflow_text("apprise.yaml")
     release_triggers = _load_workflow_triggers("release.yml")
+    release_workflow = _load_workflow("release.yml")
     release_text = _load_workflow_text("release.yml")
     apprise_setup = _workflow_step(apprise, "test_apprise", "Install uv")
+    release_setup = _workflow_step(release_workflow, "publish_to_pypi", "Install uv")
 
     assert apprise_triggers["push"]["branches"] == ["main"]
     assert apprise_triggers["pull_request"]["branches"] == ["main"]
@@ -147,6 +153,7 @@ def test_auxiliary_workflows_use_supported_uv_baseline() -> None:
     assert "setup-uv" in apprise_text
     assert "setup-uv@v6" not in apprise_text
     assert str(apprise_setup["uses"]) == "astral-sh/setup-uv@v7"
+    assert str(apprise_setup["with"]["version"]) == UV_VERSION
     assert str(apprise_setup["with"]["save-cache"]).lower() == "false"
     assert "uv sync --all-extras" in apprise_text
     assert "uv run pytest --cov" in apprise_text
@@ -159,6 +166,8 @@ def test_auxiliary_workflows_use_supported_uv_baseline() -> None:
     assert "poetry build" not in release_text
     assert "poetry publish" not in release_text
     assert "setup-uv" in release_text
+    assert str(release_setup["uses"]) == "astral-sh/setup-uv@v7"
+    assert str(release_setup["with"]["version"]) == UV_VERSION
     assert "uv version --short" in release_text
     assert "uv python install 3.13" in release_text
     assert "uv build" in release_text
