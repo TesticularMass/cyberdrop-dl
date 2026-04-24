@@ -5,7 +5,7 @@ set "AUTO_UPDATE=true"
 
 REM ----------------------------------------------------------
 set "PACKAGE_NAME=cyberdrop-dl-patched"
-set "PACKAGE_VERSION=>=8.0,<9.0"
+set "PACKAGE_VERSION=>=9.0,<10.0"
 
 if /i "%PROCESSOR_ARCHITECTURE%"=="x86" (
     echo ERROR: 32-bit Windows is not supported.
@@ -16,7 +16,7 @@ if /i "%PROCESSOR_ARCHITECTURE%"=="x86" (
 where uv >nul 2>&1
 if errorlevel 1 (
     echo uv not found, installing...
-    powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+    powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/0.10.11/install.ps1 | iex"
     if errorlevel 1 (
         echo Error: Failed to install uv.
         pause

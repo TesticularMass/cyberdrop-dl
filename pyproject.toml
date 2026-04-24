@@ -1,77 +1,104 @@
 [project]
 name = "cyberdrop-dl-patched"
 authors = [{name = "Jacob B", email = "admin@script-ware.net"}]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14"
+]
 dependencies = [
-    "aiodns >=4.0.0",
+    "aiodns >=4.0.0; sys_platform != 'android' and sys_platform != 'win32'",
     "aiofiles >=25.1.0",
-    "aiohttp[speedups] >=3.13.3",
+    "aiohttp >=3.13.5",
     "aiolimiter >=1.2.1",
     "aiosqlite>=0.22.1",
     "async-mega-py >=2.0.2",
     "beautifulsoup4 >=4.14.3",
-    "certifi >=2026.1.4",
-    "curl-cffi >=0.13,<0.14; implementation_name == 'cpython' ",
+    "brotli; implementation_name=='cpython' and sys_platform!='ios'",
+    "brotlicffi; implementation_name!='cpython' and sys_platform!='ios'",
+    "certifi >=2026.2.25",
+    "curl-cffi >=0.15; implementation_name == 'cpython' ",
     "dateparser >=1.2.2",
-    "imagesize >=1.4.1",
+    "cyclopts>=4.10.2",
+    "imagesize >=2.0.0",
+    "inquirer>=3.4.1",
     "inquirerpy >=0.3.4",
     "jeepney >=0.9.0; 'bsd' in sys_platform or sys_platform == 'linux'",
     "m3u8 >=6.0.0",
     "myjdapi >=1.1.10",
-    "packaging >=25.0",
     "propcache >=0.4.1",
-    "psutil >=7.2.1",
-    "pycares >=4.10.0",
+    "psutil >=7.2.1; sys_platform != 'android'",
     "pycryptodome >=3.23.0",
-    "pydantic >=2.12.4",
+    "pydantic >=2.13.1",
     "pyyaml >=6.0.3",
-    "rich >=14.2.0",
+    "readchar >= 4.2.2",
+    "rich >=15.0.0",
     "send2trash >=2.0.0",
     "truststore >=0.10.4",
     "xxhash >=3.6.0",
-    "yarl >=1.22.0"
+    "yarl >=1.23.0"
 ]
 description = "Bulk downloader for multiple file hosts"
+keywords = ["asyncio", "bunkr", "cyberdrop", "downloader", "mega.nz"]
 license = "GPL-3.0-only"
 license-files = ["LICENSE"]
+maintainers = [{name = "NTFSvolume", email = "NTFSvolume@proton.me"}]
 readme = "README.md"
 requires-python = ">=3.13,<4"
 version = "9.0.0"
 
 [project.scripts]
-cyberdrop-dl = "cyberdrop_dl.main:main"
-cyberdrop-dl-patched = "cyberdrop_dl.main:main"
+cyberdrop-dl = "cyberdrop_dl.__main__:main"
+cyberdrop-dl-patched = "cyberdrop_dl.__main__:main"
 
 [project.urls]
-Changelog = "https://github.com/jbsparrow/CyberDropDownloader/blob/master/CHANGELOG.md"
-Documentation = "https://script-ware.gitbook.io/cyberdrop-dl/"
-Repository = "https://github.com/jbsparrow/CyberDropDownloader"
+Changelog = "https://github.com/Cyberdrop-DL/cyberdrop-dl/blob/main/CHANGELOG.md"
+Funding = 'https://github.com/sponsors/jbsparrow'
+Issues = "https://github.com/Cyberdrop-DL/cyberdrop-dl/issues"
+Repository = "https://github.com/Cyberdrop-DL/cyberdrop-dl"
 
 [build-system]
-build-backend = "poetry.core.masonry.api"
-requires = ["poetry-core>=1.0.0"]
+build-backend = "uv_build"
+requires = ["uv_build<=0.10.11"]
 
 [dependency-groups]
 dev = [
-    "pre-commit>=4.5.1",
+    "prek>=0.3.9",
     "py-markdown-table>=1.3.0",
-    "ruff>=0.14.11, <0.15.0",
-    "tox>=4.34.1"
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.1.0",
+    "pytest>=9.0.3",
+    "ruff==0.15.6",
+    "tox>=4.53.0"
 ]
 extras = [
     "apprise >=1.9.7"
 ]
-test = [
-    "pytest-asyncio>=1.3.0",
-    "pytest-cov>=7.0.0",
-    "pytest>=9.0.2"
-]
+
+[tool.basedpyright]
+ignore = ["cyberdrop_dl/dependencies/browser_cookie3.py"]
+include = ["cyberdrop_dl", "scripts", "tests"]
+reportExplicitAny = false
+reportImplicitOverride = "hint"
+reportImplicitStringConcatenation = false
+reportImportCycles = "warning"
+reportUnreachable = "hint"
+reportUnusedCallResult = false
+typeCheckingMode = "recommended"
 
 [tool.coverage.report]
 exclude_also = [
     '@(abc\.)?abstractmethod',
     'class .*\bProtocol\):',
     'if __name__ == .__main__.:',
-    'if env.DEBUG_VAR:',
     'if TYPE_CHECKING:'
 ]
 
@@ -80,11 +107,6 @@ omit = [
     "cyberdrop_dl/crawlers/*",
     "tests/*"
 ]
-
-[tool.poetry]
-include = ["CHANGELOG.md"]
-packages = [{include = "cyberdrop_dl"}]
-requires-poetry = ">=2.2.0"
 
 [tool.pytest.ini_options]
 addopts = ["-s"]
@@ -100,7 +122,7 @@ markers = [
 minversion = "8.4.1"
 
 [tool.ruff]
-exclude = ["cyberdrop_dl/dependencies/_browser_cookie3.py"]
+exclude = ["cyberdrop_dl/dependencies/browser_cookie3.py"]
 line-length = 120
 target-version = "py313"
 
@@ -155,3 +177,10 @@ in_place = true
 sort_first = ["name", "project", "select"]
 spaces_before_inline_comment = 2
 spaces_indent_inline_array = 4
+
+[tool.uv]
+
+[tool.uv.build-backend]
+module-name = ["cyberdrop_dl"]
+module-root = ""
+source-include = ["CHANGELOG.md"]

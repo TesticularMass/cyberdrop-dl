@@ -7,8 +7,11 @@
 *.log
 *.profiling
 *.csv
+*.jsonl
 .coverage
 .config.yaml
+debug_run.test
+URLs.txt
 /build
 
 # Python cache

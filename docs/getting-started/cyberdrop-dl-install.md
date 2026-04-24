@@ -13,7 +13,7 @@ This is the simplest method to get the program up and running. Pre-configured st
 The start scripts only work on 64bits operating systems. If you are running a 32bit OS, you need to install directly from pypi and may need to compile some dependencies
 {% endhint %}
 
-You can download them here: [https://github.com/jbsparrow/CyberDropDownloader/releases/latest](https://github.com/jbsparrow/CyberDropDownloader/releases/latest)
+You can download them here: [https://github.com/Cyberdrop-DL/cyberdrop-dl/releases/latest](https://github.com/Cyberdrop-DL/cyberdrop-dl/releases/latest)
 
 You only need to download the `Cyberdrop-DL_<version>.zip` file, you don't need to worry about the other files.
 
@@ -41,7 +41,7 @@ You can open the start script from the zip in a text editor like notepad. At the
 set "COMMANDLINE_ARGS="
 ```
 
-`COMMANDLINE_ARGS`:  Provide any arguments to pass to Cyberdrop-Dl. For more information, refer to the [CLI Arguments section](../reference/cli-arguments.md)
+`COMMANDLINE_ARGS`: Provide any arguments to pass to Cyberdrop-Dl. For more information, refer to the [CLI Arguments section](../reference/cli-arguments.md)
 
 {% hint style="info" %}
 You **MUST** put the values _inside_ the double quotes. Ex: `set "COMMANDLINE_ARGS=--disable-cache"`
@@ -60,7 +60,7 @@ The recommended way to install Cyberdrop-DL is using [`uv`](https://docs.astral.
 {% tab title="macOS / Linux" %}
 
 ```shell
-curl -LsSf https://astral.sh/uv/install.sh | sh
+curl -LsSf https://astral.sh/uv/0.10.11/install.sh | sh
 ```
 
 {% endtab %}
@@ -68,7 +68,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 {% tab title="Windows" %}
 
 ```shell
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/0.10.11/install.ps1 | iex"
 ```
 
 {% endtab %}

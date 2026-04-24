@@ -22,6 +22,194 @@ All notable changes to this project will be documented here. For more details, v
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.4.0] - 2026-04-23
+
+### Added
+
+- ImageVenue support
+- Photo search support (Anysex)
+- Photo search and Tags support (ePorner)
+
+### Changed
+
+- Log CDL enviroment vars
+- Always use threads to resolve DNS queries on Windows
+
+### Removed
+
+- InfluencerBitches support (No longer exists)
+
+### Fixed
+
+- Ignore errors while checking for updates
+- `RuntimeError` when downloads reach 99% due to incorrect MAC integrity check (MegaNZ)
+
+## [9.3.1] - 2026-04-21
+
+### Fixed
+
+- Download errors showing as scrape errors
+
+## [9.3.0] - 2026-04-20
+
+### Added
+
+- Patreon support
+- OnePace support
+- Giphy support
+- XMegaDrive support
+- Search, tag and category support (ThotHub)
+
+### Changed
+
+- Hash multiple files (20) at once when using the UI menu option
+- Default to HLS downloads (xHamster)
+- Improve support for Flaresolverr forks using NoDriver/DrissionPage
+
+### Fixed
+
+- Downloads panel not showing up in vertical layout
+- Do no try to hash folders
+- Do not try to normalize usernames (RedGifs)
+- Search and user's pagination (Rule34Video, CamWhores)
+- Do not download random unrelated videos from profiles (Rule34Video)
+- Merging of m3u8 subtitles
+- Subtitles sometimes being deleted after download
+- Handle subdomains (Tranny.one)
+- `KeyError` trying to parse a response from Flaresolverr instance using Selenium as backend
+- Update query hashes (Twitch)
+
+## [9.2.0] - 2026-04-15
+
+### Added
+
+- Tabootube support
+
+### Changed
+
+- Check for DDoS-Guard even on successful responses
+- New hashing, dedupe and scraping UI
+- Show accurate download progress for HLS downloads
+
+### Removed
+
+- Flugel anime support (No longer exists)
+- Safe.soul support (No longer exists)
+- Xbunkr support (No longer exists)
+
+### Fixed
+
+- Switch to v2 API (nHentai)
+- Download URL extraction (MixDrop)
+- Do not try to parse relative dates (KVS)
+- Use impersonation for downloads (MissAV)
+
+## [9.1.0] - 2026-04-08
+
+⚠️**IMPORTANT**
+
+> This version logs raw HTTP requests and responses to the main log file. They may include credentials, IP, etc. Remove personal information before sharing them or just extract the relevant logs
+> Options to change log level are ignored. It will be fixed on a future version
+
+### Added
+
+- Gupload.xyz support
+- Vidara support
+- OwnCloud support
+- Support premium URLs (MediaFire)
+- Support subfolders (Filester)
+- Add support for archives (.zip) files (ImagePond)
+
+### Changed
+
+- Adjust default rate limit (RedGifs)
+- Create crawlers only if they are going to be used
+- Webhook notifications will now be sent as plain text
+- Use original filenames (ImagePond)
+- New UI while sorting files
+- CDL is way more verbose now
+- Several performance improvents
+
+### Deprecated
+
+- Auto import cookies
+
+### Removed
+
+- All settings and UI options about changing configs have been removed. CDL will always use the default config at `AppData/Configs/Default/setting.yaml`. A different config can be specified only via CLI args (`--config-file`)
+- The UI Option to export cookies has been removed
+
+### Fixed
+
+- Download all videos on paginated playlists (50+ videos) (PMVHaven )
+- Handle deleted videos (TubeCorporate)
+- 404 downloads (Bunkr)
+- Update selectors for files with MD5 hashes instead of SHA256 (Filester)
+- Profile, albums and images crawling (ImagePond)
+- Android support (requires python 3.13)
+- Player info parsing (ashemaletube)
+
+## [9.0.2] - 2026-03-25
+
+### Changed
+
+- Support users with up to 20K posts (Redgifs)
+
+### Removed
+
+- UI option to check updates
+
+### Fixed
+
+- Database path (Filester)
+- Requote download redirects (ePorner)
+- Update website salt (Gofile)
+
+## [9.0.1] - 2026-03-17
+
+### Fixed
+
+- Update website salt (Gofile)
+
+## [9.0.0] - 2026-03-09
+
+⚠️**BREAKING CHANGES**
+
+> You can only upgrade to this version from v8.10.
+
+### Added
+
+- Upload.ee support
+- Filester support
+
+### Changed
+
+- Use original filename for turbo.cr
+- Apprise is now an optional dependency (required for notifications)
+
+### Removed
+
+- Reddit support
+
+Several config options:
+
+- `config`
+- `disable_cache`
+- `log_line_width`
+- `file_host_cache_expire_after`
+- `forum_cache_expire_after`
+- `downloading_item_limit`
+- `scraping_item_limit`
+- `vi_mode`
+
+### Fixed
+
+- Download of multipage profile albums (Chevereto)
+- Handle `redirect/to` links (Xenforo)
+- Download of files with broken thumbnails (bunkr)
+- Send custom one-time-use headers (GoFile)
+- Download subfolder from filesystem URLs (pixeldrain)
+
 ## [8.10.0] - 2026-01-26
 
 ### Added
@@ -233,7 +421,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Use impersonation for all Chevereto sites  
+- Use impersonation for all Chevereto sites
 
 ### Fixed
 
@@ -811,7 +999,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TikTok crawler returning 403 on all downloads
 - Use new API to download files (bunkr)
 - Download encrypted URLs (jpg5)
-- Do not overwrite user provided regex  (`--filename-regex-filter`)
+- Do not overwrite user provided regex (`--filename-regex-filter`)
 
 ### Changed
 
@@ -893,7 +1081,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support cookie extraction from Arc Browser, Lynx and W3M
 - `--exclude-files-with-no-extension` option: <https://script-ware.gitbook.io/cyberdrop-dl/reference/configuration-options/settings/ignore_options#exclude_files_with_no_extension>
 - `--print-stats` CLI only option
-- Scrape nested threads with  `--maximum-thread-depth`: <https://script-ware.gitbook.io/cyberdrop-dl/reference/configuration-options/settings/download_options#maximum-thread-depth>
+- Scrape nested threads with `--maximum-thread-depth`: <https://script-ware.gitbook.io/cyberdrop-dl/reference/configuration-options/settings/download_options#maximum-thread-depth>
 
 ### Removed
 
@@ -1062,7 +1250,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 1. Stricter config validation logic. CDL will verify that every config value and CLI argument is valid before running
 
 2. All dedupe and hashing functions has been replaced.
-
    - `xxh128` is now the default hashing algorithm, replacing `md5`
    - By default, all v5 hashes will be ignored for deduplication matches. You can re-enable md5 with `--add-md5-hash`
    - It's no longer possible to keep the newest file while deduplicating.
@@ -1071,7 +1258,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 3. Removed `--sort-cdl-only` option
 
 4. The following arguments are deprecated and will be removed in a future version:
-
    - `--output-folder`
    - `--download-all-configs`
    - `--sort-all-configs`
@@ -1238,7 +1424,7 @@ This update introduces the following changes:
 ### Details
 
 1. Users can include the password as a query parameter in the input URL, adding `?password=<URL_PASSWORD>` to it.
- Example: <https://gofile.io/d/xUprGg?password=1234>
+   Example: <https://gofile.io/d/xUprGg?password=1234>
 
 ## [5.6.43] - 2024-10-03
 
@@ -1251,7 +1437,7 @@ This update introduces the following changes:
 - CLI arguments that toggle settings to `True` or `False` can now be passed as either `--arg` or `--no-arg` to set the value to `True` or `False` respectively.
 - This also solves an issue where CLI arguments that toggle settings would override config file settings even if the CLI argument was never passed.
 
-## [5.6.42] -  2024-10-03
+## [5.6.42] - 2024-10-03
 
 This update introduces the following changes:
 
@@ -1293,7 +1479,7 @@ This update introduces the following changes:
 
 ### Details
 
-- Project changes will documented on <https://github.com/jbsparrow/CyberDropDownloader/blob/master/CHANGELOG.md> for better tracking
+- Project changes will documented on <https://github.com/Cyberdrop-DL/cyberdrop-dl/blob/main/CHANGELOG.md> for better tracking
 - Built-in viewer will fetch CHANGELOG history on first use
 
 ## [5.6.38] - 2024-09-30
