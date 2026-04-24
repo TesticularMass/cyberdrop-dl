@@ -84,11 +84,15 @@ def test_startup_logger_when_manager_startup_fails(
         assert startup_file.exists() == exists
 
 
-def test_startup_logger_should_not_be_created_when_using_invalid_cli_args(tmp_cwd: Path) -> None:
+def test_startup_logger_should_not_be_created_when_using_invalid_cli_args(
+    tmp_cwd: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     try:
         run("--invalid-command")
     except SystemExit:
         pass
+    stderr = capsys.readouterr().err
+    assert "unrecognized arguments: --invalid-command" in stderr
     startup_file = Path.cwd() / "startup.log"
     assert not startup_file.exists()
 

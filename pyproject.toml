@@ -51,7 +51,7 @@ license-files = ["LICENSE"]
 maintainers = [{name = "NTFSvolume", email = "NTFSvolume@proton.me"}]
 readme = "README.md"
 requires-python = ">=3.13,<4"
-version = "9.0.0"
+version = "9.4.0"
 
 [project.scripts]
 cyberdrop-dl = "cyberdrop_dl.__main__:main"

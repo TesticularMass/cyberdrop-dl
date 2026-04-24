@@ -43,6 +43,13 @@ def _launcher_python_selector(versions: list[str]) -> str:
     return f">={versions[0]},<{_next_python_minor(versions[-1])}"
 
 
+def _latest_changelog_version() -> str:
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf8")
+    match = re.search(r"^## \[(?P<version>\d+\.\d+\.\d+)\]", changelog, re.MULTILINE)
+    assert match
+    return match.group("version")
+
+
 def _python_version_for_step(workflow: dict, job: str, step_name: str) -> str:
     for step in workflow["jobs"][job]["steps"]:
         if step.get("name") == step_name:
@@ -61,6 +68,7 @@ def test_runtime_metadata_targets_python_313_plus() -> None:
     pyproject = _load_pyproject()
     classifiers = set(pyproject["project"]["classifiers"])
     assert pyproject["project"]["requires-python"] == ">=3.13,<4"
+    assert pyproject["project"]["version"] == _latest_changelog_version()
     assert pyproject["tool"]["ruff"]["target-version"] == "py313"
     assert (ROOT / ".python-version").read_text(encoding="utf8").strip() == "3.13"
     assert "Programming Language :: Python :: 3.13" in classifiers
@@ -70,6 +78,16 @@ def test_runtime_metadata_targets_python_313_plus() -> None:
     assert (ROOT / "uv.lock").exists()
     assert not (ROOT / "poetry.lock").exists()
     assert '# requires-python = ">=3.13"' in (ROOT / "scripts" / "tools" / "filter_logs.py").read_text(encoding="utf8")
+
+
+def test_console_entrypoints_target_a_real_module() -> None:
+    pyproject = _load_pyproject()
+    scripts = pyproject["project"]["scripts"]
+    main_module = ROOT / "cyberdrop_dl" / "__main__.py"
+
+    assert scripts["cyberdrop-dl"] == "cyberdrop_dl.__main__:main"
+    assert scripts["cyberdrop-dl-patched"] == "cyberdrop_dl.__main__:main"
+    assert main_module.is_file()
 
 
 def test_tox_and_ci_only_cover_supported_python_versions() -> None:
