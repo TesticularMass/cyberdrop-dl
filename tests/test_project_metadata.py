@@ -50,6 +50,13 @@ def _python_version_for_step(workflow: dict, job: str, step_name: str) -> str:
     raise AssertionError(f"step {step_name!r} not found in {job!r}")
 
 
+def _workflow_step(workflow: dict, job: str, step_name: str) -> dict:
+    for step in workflow["jobs"][job]["steps"]:
+        if step.get("name") == step_name:
+            return step
+    raise AssertionError(f"step {step_name!r} not found in {job!r}")
+
+
 def test_runtime_metadata_targets_python_313_plus() -> None:
     pyproject = _load_pyproject()
     classifiers = set(pyproject["project"]["classifiers"])
@@ -75,8 +82,11 @@ def test_tox_and_ci_only_cover_supported_python_versions() -> None:
     push_paths = set(workflow_triggers["push"]["paths"])
     pull_request_paths = set(workflow_triggers["pull_request"]["paths"])
     ci_workflow = _load_workflow("ci.yaml")
+    ci_text = _load_workflow_text("ci.yaml")
     no_build_versions = {str(item) for item in ci_workflow["jobs"]["no-build"]["strategy"]["matrix"]["python-version"]}
     test_versions = {str(item) for item in ci_workflow["jobs"]["test"]["strategy"]["matrix"]["python-version"]}
+    no_build_setup = _workflow_step(ci_workflow, "no-build", "Install uv")
+    test_setup = _workflow_step(ci_workflow, "test", "Install uv")
 
     assert "uv.lock" in push_paths
     assert "uv.lock" in pull_request_paths
@@ -86,6 +96,11 @@ def test_tox_and_ci_only_cover_supported_python_versions() -> None:
     assert ".github/workflows/release.yml" in pull_request_paths
     assert no_build_versions == {"3.13", "3.14"}
     assert test_versions == {"3.13", "3.14"}
+    assert "setup-uv@v6" not in ci_text
+    assert str(no_build_setup["uses"]) == "astral-sh/setup-uv@v7"
+    assert str(test_setup["uses"]) == "astral-sh/setup-uv@v7"
+    assert str(no_build_setup["with"]["enable-cache"]).lower() == "false"
+    assert str(no_build_setup["with"]["ignore-empty-workdir"]).lower() == "true"
 
 
 def test_auxiliary_workflows_use_supported_uv_baseline() -> None:
@@ -94,6 +109,7 @@ def test_auxiliary_workflows_use_supported_uv_baseline() -> None:
     apprise_text = _load_workflow_text("apprise.yaml")
     release_triggers = _load_workflow_triggers("release.yml")
     release_text = _load_workflow_text("release.yml")
+    apprise_setup = _workflow_step(apprise, "test_apprise", "Install uv")
 
     assert apprise_triggers["push"]["branches"] == ["main"]
     assert apprise_triggers["pull_request"]["branches"] == ["main"]
@@ -111,6 +127,8 @@ def test_auxiliary_workflows_use_supported_uv_baseline() -> None:
     assert "poetry install" not in apprise_text
     assert "poetry run pytest" not in apprise_text
     assert "setup-uv" in apprise_text
+    assert "setup-uv@v6" not in apprise_text
+    assert str(apprise_setup["uses"]) == "astral-sh/setup-uv@v7"
     assert "uv sync --all-extras" in apprise_text
     assert "uv run pytest --cov" in apprise_text
 
