@@ -1,8 +1,7 @@
 from pathlib import Path
 
-from cyberdrop_dl.supported_sites import get_crawlers_info_as_markdown_table
-
 from cyberdrop_dl import __version__
+from cyberdrop_dl.supported_sites import get_crawlers_info_as_markdown_table
 
 REPO_ROOT = Path(__file__).parents[2]
 CLI_ARGUMENTS_MD = REPO_ROOT / "docs/reference/cli-arguments.md"

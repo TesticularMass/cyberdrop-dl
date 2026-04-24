@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from cyberdrop_dl.__main__ import main as run_cdl
-
 from cyberdrop_dl.crawlers.crawler import SKIP_DOWNLOAD
 
 if TYPE_CHECKING:

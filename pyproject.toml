@@ -167,6 +167,9 @@ unfixable = [
 ]
 "__init__.py" = ["E402"]  # imports not at the top of the file.
 
+[tool.ruff.lint.isort]
+known-first-party = ["cyberdrop_dl"]
+
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
