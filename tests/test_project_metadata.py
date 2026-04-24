@@ -129,6 +129,7 @@ def test_auxiliary_workflows_use_supported_uv_baseline() -> None:
     assert "setup-uv" in apprise_text
     assert "setup-uv@v6" not in apprise_text
     assert str(apprise_setup["uses"]) == "astral-sh/setup-uv@v7"
+    assert str(apprise_setup["with"]["save-cache"]).lower() == "false"
     assert "uv sync --all-extras" in apprise_text
     assert "uv run pytest --cov" in apprise_text
 
