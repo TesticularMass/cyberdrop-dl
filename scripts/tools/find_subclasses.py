@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import rich
+from rich import print as rich_print
 from rich.table import Table
 
 from cyberdrop_dl.progress import hyperlink
@@ -53,4 +53,4 @@ if __name__ == "__main__":
     domain = sys.argv[1]
     subclasses = find_subclasses_of(domain)
     table = make_table(subclasses)
-    rich.print(table)
+    rich_print(table)
