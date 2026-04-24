@@ -30,7 +30,14 @@ def test_startup_migration_preserves_requested_config(tmp_path, monkeypatch) -> 
 def test_change_config_preserves_cli_overrides(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     manager = Manager(
-        ("--appdata-folder", str(tmp_path), "-d", str(tmp_path / "Downloads"), "--download-tiktok-audios", "--exclude-images")
+        (
+            "--appdata-folder",
+            str(tmp_path),
+            "-d",
+            str(tmp_path / "Downloads"),
+            "--download-tiktok-audios",
+            "--exclude-images",
+        )
     )
     manager.startup()
 

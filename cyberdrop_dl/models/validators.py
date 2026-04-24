@@ -6,11 +6,9 @@ from functools import singledispatch
 from typing import (
     TYPE_CHECKING,
     Concatenate,
-    ParamSpec,
     SupportsIndex,
     SupportsInt,
     TypedDict,
-    TypeVar,
     overload,
 )
 
@@ -26,10 +24,6 @@ _DATE_PATTERN_REGEX = r"(\d+)\s*(second|seconds|minute|minutes|hour|hours|day|da
 _DATE_PATTERN = re.compile(_DATE_PATTERN_REGEX, re.IGNORECASE)
 _BYTE_SIZE_ADAPTER = TypeAdapter(ByteSize)
 type _ConvertibleToInt = str | SupportsInt | SupportsIndex
-P = ParamSpec("P")
-T = TypeVar("T")
-R = TypeVar("R")
-T2 = TypeVar("T2")
 
 
 def bytesize_to_str(value: _ConvertibleToInt) -> str:
@@ -125,12 +119,12 @@ def falsy_as[T, T2](value: T, falsy_value: T2, func: None = None) -> T | T2: ...
 
 
 @overload
-def falsy_as(
+def falsy_as[T, T2, **P, R](
     value: T, falsy_value: T2, func: Callable[Concatenate[T, P], R], *args: P.args, **kwargs: P.kwargs
 ) -> T2 | R: ...
 
 
-def falsy_as(
+def falsy_as[T, T2, **P, R](
     value: T,
     falsy_value: T2,
     func: Callable[Concatenate[T, P], R] | None = None,

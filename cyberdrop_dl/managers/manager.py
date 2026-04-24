@@ -4,7 +4,7 @@ import asyncio
 import json
 from dataclasses import Field, field
 from time import perf_counter
-from typing import TYPE_CHECKING, Any, NamedTuple, TypeVar
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from pydantic import BaseModel
 
@@ -282,10 +282,7 @@ def merge_dicts(dict1: dict[str, Any], dict2: dict[str, Any]) -> dict[str, Any]:
     return dict1
 
 
-M = TypeVar("M", bound=BaseModel)
-
-
-def merge_models(default: M, new: M) -> M:
+def merge_models[M: BaseModel](default: M, new: M) -> M:
     default_dict = default.model_dump()
     new_dict = new.model_dump(exclude_unset=True)
 

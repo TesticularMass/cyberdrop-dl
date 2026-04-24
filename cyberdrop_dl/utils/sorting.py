@@ -22,6 +22,14 @@ if TYPE_CHECKING:
     from cyberdrop_dl.managers.manager import Manager
 
 
+def _iter_resolved_files(directory: Path) -> list[Path]:
+    files: list[Path] = []
+    for file in directory.rglob("*"):
+        if file.is_file():
+            files.append(file.resolve())
+    return files
+
+
 async def get_modified_date(file: Path) -> datetime:
     stat = await asyncio.to_thread(file.stat)
     return datetime.fromtimestamp(stat.st_mtime).replace(microsecond=0)
@@ -43,14 +51,8 @@ class Sorter:
 
     async def _get_files(self, directory: Path) -> AsyncGenerator[Path]:
         """Finds all files in a directory and returns them in a list."""
-
-        def resolve_if_file(path: Path) -> Path | None:
-            if path.is_file():
-                return path.resolve()
-
-        for file in directory.rglob("*"):
-            if file := await asyncio.to_thread(resolve_if_file, file):
-                yield file
+        for file in await asyncio.to_thread(_iter_resolved_files, directory):
+            yield file
 
     def _move_file(self, old_path: Path, new_path: Path) -> bool:
         """Moves a file to a destination folder."""

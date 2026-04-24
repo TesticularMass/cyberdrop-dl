@@ -8,7 +8,9 @@ from cyberdrop_dl.scraper import scrape_mapper
 
 
 def _build_manager(root) -> Manager:
-    manager = Manager(("--appdata-folder", str(root / "AppData"), "-d", str(root / "Downloads"), "--download-tiktok-audios"))
+    manager = Manager(
+        ("--appdata-folder", str(root / "AppData"), "-d", str(root / "Downloads"), "--download-tiktok-audios")
+    )
     manager.startup()
     manager.path_manager.startup()
     return manager

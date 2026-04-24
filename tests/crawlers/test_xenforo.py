@@ -234,7 +234,9 @@ def test_parse_thread(url: str, thread_name_and_id: str, result: tuple[int, str,
 
 
 def test_normalize_thread_request_url_removes_alias_segment() -> None:
-    url = AbsoluteHttpURL("https://simpcity.cr/threads/katelyn-s5410/ampisi-mrscampisi-thecampisis-the-campisis.125410/")
+    url = AbsoluteHttpURL(
+        "https://simpcity.cr/threads/katelyn-s5410/ampisi-mrscampisi-thecampisis-the-campisis.125410/"
+    )
     normalized = _forum.normalize_thread_request_url(url, thread_part_index=1, thread_name_index=3)
     assert normalized == AbsoluteHttpURL(
         "https://simpcity.cr/threads/ampisi-mrscampisi-thecampisis-the-campisis.125410/"
@@ -244,8 +246,12 @@ def test_normalize_thread_request_url_removes_alias_segment() -> None:
 @pytest.mark.asyncio
 async def test_fetch_thread_accepts_alias_segment_before_thread_name() -> None:
     scrape_item = _item("https://simpcity.cr/threads/katelyn-s5410/ampisi-mrscampisi-thecampisis-the-campisis.125410/")
-    expected_request_url = AbsoluteHttpURL("https://simpcity.cr/threads/ampisi-mrscampisi-thecampisis-the-campisis.125410/")
-    expected_canonical_url = AbsoluteHttpURL("https://simpcity.cr/threads/ampisi-mrscampisi-thecampisis-the-campisis.125410")
+    expected_request_url = AbsoluteHttpURL(
+        "https://simpcity.cr/threads/ampisi-mrscampisi-thecampisis-the-campisis.125410/"
+    )
+    expected_canonical_url = AbsoluteHttpURL(
+        "https://simpcity.cr/threads/ampisi-mrscampisi-thecampisis-the-campisis.125410"
+    )
 
     with (
         mock.patch.object(TEST_CRAWLER, "check_thread_recursion"),
@@ -788,9 +794,7 @@ def _simpcity_fixture_posts() -> dict[int, _forum.ForumPost]:
     return posts
 
 
-async def _normalize_extracted_links(
-    crawler: xenforo.XenforoCrawler, post: _forum.ForumPost
-) -> list[str]:
+async def _normalize_extracted_links(crawler: xenforo.XenforoCrawler, post: _forum.ForumPost) -> list[str]:
     normalized: list[str] = []
     for link in crawler._external_links(post):
         absolute = await crawler.get_absolute_link(link)
@@ -857,20 +861,13 @@ async def test_simpcity_whole_thread_preserves_extraction_regression_shape() -> 
     for post_id, expected_images in expected_images_by_post.items():
         assert list(crawler._images(posts[post_id])) == expected_images
 
-    actual_links_by_post = {
-        post_id: await _normalize_extracted_links(crawler, post)
-        for post_id, post in posts.items()
-    }
+    actual_links_by_post = {post_id: await _normalize_extracted_links(crawler, post) for post_id, post in posts.items()}
     assert actual_links_by_post == expected_links_by_post
 
     expected_all_links = {link for links in expected_links_by_post.values() for link in links}
     assert {link for links in actual_links_by_post.values() for link in links} == expected_all_links
 
-    assert {
-        link
-        for link in expected_all_links
-        if "instagram.com" not in link and "bunkr.cr" not in link
-    } == {
+    assert {link for link in expected_all_links if "instagram.com" not in link and "bunkr.cr" not in link} == {
         "https://onlyfans.com/les.chesticles/media",
         "https://www.reddit.com/user/les-chesticles",
         "https://www.depop.com/leschesticles",

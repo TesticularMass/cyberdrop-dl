@@ -144,32 +144,32 @@ def error_handling_context(self: Crawler | Downloader, item: ScrapeItem | MediaI
 
 @overload
 def error_handling_wrapper[CrawerOrDownloader: Crawler | Downloader, Origin: ScrapeItem | MediaItem | URL, **P, R](
-    func: Callable[Concatenate[CrawerOrDownloader, Origin, _P], _R],
-) -> Callable[Concatenate[CrawerOrDownloader, Origin, _P], _R]: ...
+    func: Callable[Concatenate[CrawerOrDownloader, Origin, P], R],
+) -> Callable[Concatenate[CrawerOrDownloader, Origin, P], R]: ...
 
 
 @overload
 def error_handling_wrapper[CrawerOrDownloader: Crawler | Downloader, Origin: ScrapeItem | MediaItem | URL, **P, R](
-    func: Callable[Concatenate[CrawerOrDownloader, Origin, _P], Coroutine[None, None, _R]],
-) -> Callable[Concatenate[CrawerOrDownloader, Origin, _P], Coroutine[None, None, _R]]: ...
+    func: Callable[Concatenate[CrawerOrDownloader, Origin, P], Coroutine[None, None, R]],
+) -> Callable[Concatenate[CrawerOrDownloader, Origin, P], Coroutine[None, None, R]]: ...
 
 
-def error_handling_wrapper(
-    func: Callable[Concatenate[CrawerOrDownloader, Origin, _P], _R | Coroutine[None, None, _R]],
-) -> Callable[Concatenate[CrawerOrDownloader, Origin, _P], _R | Coroutine[None, None, _R]]:
+def error_handling_wrapper[CrawerOrDownloader: Crawler | Downloader, Origin: ScrapeItem | MediaItem | URL, **P, R](
+    func: Callable[Concatenate[CrawerOrDownloader, Origin, P], R | Coroutine[None, None, R]],
+) -> Callable[Concatenate[CrawerOrDownloader, Origin, P], R | Coroutine[None, None, R]]:
     """Wrapper handles errors for url scraping."""
 
     if inspect.iscoroutinefunction(func):
 
         @wraps(func)
-        async def async_wrapper(self: CrawerOrDownloader, item: Origin, *args: _P.args, **kwargs: _P.kwargs) -> _R:
+        async def async_wrapper(self: CrawerOrDownloader, item: Origin, *args: P.args, **kwargs: P.kwargs) -> R:
             with error_handling_context(self, item):
                 return await func(self, item, *args, **kwargs)
 
         return async_wrapper
 
     @wraps(func)
-    def wrapper(self: CrawerOrDownloader, item: Origin, *args: _P.args, **kwargs: _P.kwargs) -> _R:
+    def wrapper(self: CrawerOrDownloader, item: Origin, *args: P.args, **kwargs: P.kwargs) -> R:
         with error_handling_context(self, item):
             result = func(self, item, *args, **kwargs)
             assert not inspect.isawaitable(result)

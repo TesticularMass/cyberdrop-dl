@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -12,6 +13,13 @@ if TYPE_CHECKING:
     from yarl import URL
 
     from cyberdrop_dl.database import Database
+
+
+def _make_absolute_path(file: Path | str) -> Path:
+    path = Path(file)
+    if not path.is_absolute():
+        return path.absolute()
+    return path
 
 
 class HashTable:
@@ -40,9 +48,7 @@ class HashTable:
         """
         query = "SELECT hash FROM hash WHERE folder=? AND download_filename=? AND hash_type=? AND hash IS NOT NULL"
         try:
-            path = Path(path)
-            if not path.is_absolute():
-                path = path.absolute()
+            path = await asyncio.to_thread(_make_absolute_path, path)
             folder = str(path.parent)
             filename = path.name
 
@@ -124,9 +130,7 @@ class HashTable:
         """
 
         try:
-            full_path = Path(file)
-            if not full_path.is_absolute():
-                full_path = full_path.absolute()
+            full_path = await asyncio.to_thread(_make_absolute_path, file)
             download_filename = full_path.name
             folder = str(full_path.parent)
             await self.db_conn.execute(query, (hash_value, hash_type, folder, download_filename, hash_value))
@@ -146,12 +150,10 @@ class HashTable:
         """
         referer_ = str(referer) if referer else None
         try:
-            full_path = Path(file)
-            if not full_path.is_absolute():
-                full_path = full_path.absolute()
+            full_path = await asyncio.to_thread(_make_absolute_path, file)
             download_filename = full_path.name
             folder = str(full_path.parent)
-            stat = full_path.stat()
+            stat = await asyncio.to_thread(full_path.stat)
             file_size = stat.st_size
             file_date = int(stat.st_mtime)
             await self.db_conn.execute(

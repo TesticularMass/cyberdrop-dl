@@ -976,7 +976,9 @@ class Site(NamedTuple):
 _CrawlerT = TypeVar("_CrawlerT", bound=Crawler)
 
 
-def create_crawlers[CrawlerT: Crawler](urls: Iterable[str] | Iterable[yarl.URL], base_crawler: type[_CrawlerT]) -> set[type[_CrawlerT]]:
+def create_crawlers[CrawlerT: Crawler](
+    urls: Iterable[str] | Iterable[yarl.URL], base_crawler: type[_CrawlerT]
+) -> set[type[_CrawlerT]]:
     """Creates new subclasses of the base crawler from the urls"""
     return {_create_subclass(url, base_crawler) for url in urls}
 
@@ -1037,13 +1039,13 @@ def _sort_supported_paths(supported_paths: SupportedPaths) -> dict[str, OneOrTup
     return dict(sorted(path_pairs, key=lambda x: x[0].casefold()))
 
 
-def auto_task_id(
-    func: Callable[Concatenate[_CrawlerT, ScrapeItem, P], R | Coroutine[None, None, R]],
-) -> Callable[Concatenate[_CrawlerT, ScrapeItem, P], Coroutine[None, None, R]]:
+def auto_task_id[CrawlerT: Crawler, **P, R](
+    func: Callable[Concatenate[CrawlerT, ScrapeItem, P], R | Coroutine[None, None, R]],
+) -> Callable[Concatenate[CrawlerT, ScrapeItem, P], Coroutine[None, None, R]]:
     """Autocreate a new `task_id` from the scrape_item of the method"""
 
     @wraps(func)
-    async def wrapper(self: _CrawlerT, scrape_item: ScrapeItem, *args: P.args, **kwargs: P.kwargs) -> R:
+    async def wrapper(self: CrawlerT, scrape_item: ScrapeItem, *args: P.args, **kwargs: P.kwargs) -> R:
         await self.manager.states.RUNNING.wait()
         with self.new_task_id(scrape_item.url):
             result = func(self, scrape_item, *args, **kwargs)

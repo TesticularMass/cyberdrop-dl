@@ -4,7 +4,7 @@ import datetime
 import email.utils
 import warnings
 from functools import lru_cache
-from typing import TYPE_CHECKING, Literal, NewType, ParamSpec, TypeVar
+from typing import TYPE_CHECKING, Literal, NewType
 
 import dateparser.date
 
@@ -14,10 +14,6 @@ if TYPE_CHECKING:
 TimeStamp = NewType("TimeStamp", int)
 type DateOrder = Literal["DMY", "DYM", "MDY", "MYD", "YDM", "YMD"]
 type ParserKind = Literal["timestamp", "relative-time", "custom-formats", "absolute-time", "no-spaces-time"]
-
-_S = TypeVar("_S", bound=str)
-_P = ParamSpec("_P")
-_R = TypeVar("_R", bound=datetime.datetime | None)
 
 _DEFAULT_PARSERS: list[ParserKind] = ["relative-time", "custom-formats", "absolute-time", "no-spaces-time"]
 _DEFAULT_DATE_ORDER = "MDY"
@@ -30,7 +26,7 @@ except (ImportError, LookupError):
     _TIMEZONE = None
 
 
-def _coerce_to_list(value: _S | set[_S] | list[_S] | tuple[_S, ...] | None) -> list[_S]:
+def _coerce_to_list[S: str](value: S | set[S] | list[S] | tuple[S, ...] | None) -> list[S]:
     if value is None:
         return []
     if isinstance(value, tuple | set):
@@ -133,8 +129,8 @@ def _normalize(date_time: datetime.datetime) -> datetime.datetime:
     return date_time
 
 
-def _suppress_warnings[**P, R: datetime.datetime | None](func: Callable[_P, _R]) -> Callable[_P, _R]:
-    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+def _suppress_warnings[**P, R: datetime.datetime | None](func: Callable[P, R]) -> Callable[P, R]:
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         with warnings.catch_warnings(record=True):
             warnings.filterwarnings("ignore", category=DeprecationWarning)
             return func(*args, **kwargs)

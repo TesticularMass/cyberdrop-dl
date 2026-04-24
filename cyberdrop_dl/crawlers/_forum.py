@@ -240,7 +240,9 @@ class MessageBoardCrawler(Crawler, is_abc=True):
             case [thread_part, *_] if thread_part in self.THREAD_PART_NAMES:
                 if thread_name_index := find_thread_name_index(scrape_item.url, thread_part_index):
                     self.check_thread_recursion(scrape_item)
-                    scrape_item.url = normalize_thread_request_url(scrape_item.url, thread_part_index, thread_name_index)
+                    scrape_item.url = normalize_thread_request_url(
+                        scrape_item.url, thread_part_index, thread_name_index
+                    )
                     thread_name_and_id = scrape_item.url.parts[thread_part_index + 1]
                     thread = self.parse_thread(scrape_item.url, thread_name_and_id)
                     return await self.thread(scrape_item, thread)
@@ -644,8 +646,14 @@ def find_thread_name_index(url: AbsoluteHttpURL, thread_part_index: int) -> int 
     return None
 
 
-def normalize_thread_request_url(url: AbsoluteHttpURL, thread_part_index: int, thread_name_index: int) -> AbsoluteHttpURL:
-    new_parts = [*url.parts[1 : thread_part_index + 1], url.parts[thread_name_index], *url.parts[thread_name_index + 1 :]]
+def normalize_thread_request_url(
+    url: AbsoluteHttpURL, thread_part_index: int, thread_name_index: int
+) -> AbsoluteHttpURL:
+    new_parts = [
+        *url.parts[1 : thread_part_index + 1],
+        url.parts[thread_name_index],
+        *url.parts[thread_name_index + 1 :],
+    ]
     normalized = url.with_path("/".join(new_parts))
     if url.fragment:
         normalized = normalized.with_fragment(url.fragment)
