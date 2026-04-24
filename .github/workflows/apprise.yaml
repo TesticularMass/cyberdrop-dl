@@ -3,14 +3,24 @@ name: Apprise
 on:
   push:
     paths:
+      - .github/workflows/apprise.yaml
+      - pyproject.toml
+      - uv.lock
       - cyberdrop_dl/utils/apprise.py
+      - tests/test_apprise.py
+      - tests/test_files/apprise/**
     branches:
-      - master
+      - main
   pull_request:
     paths:
+      - .github/workflows/apprise.yaml
+      - pyproject.toml
+      - uv.lock
       - cyberdrop_dl/utils/apprise.py
+      - tests/test_apprise.py
+      - tests/test_files/apprise/**
     branches:
-      - master
+      - main
   workflow_dispatch:
 
 jobs:
@@ -21,20 +31,18 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Set up Python 3.13
-        uses: actions/setup-python@v6
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
         with:
+          version: "0.10.11"
           python-version: "3.13"
-
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
 
       - name: Install dependencies
         run: |
-          poetry install
+          uv sync --all-extras
 
       - name: Run pytest
         run: |
-          poetry run pytest --cov
+          uv run pytest --cov

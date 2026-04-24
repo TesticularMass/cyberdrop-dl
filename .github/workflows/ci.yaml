@@ -9,11 +9,11 @@ on:
       - 'tests/**/*.py'
       - '.github/workflows/ci.yaml'
       - 'pyproject.toml'
-      - 'poetry.lock'
+      - 'uv.lock'
       - 'tox.ini'
       - '.python-version'
       - '.github/workflows/apprise.yaml'
-      - '.github/workflows/publish-to-pypi.yaml'
+      - '.github/workflows/release.yml'
       - 'scripts/release/**'
   pull_request:
     branches:
@@ -24,11 +24,11 @@ on:
       - 'tests/**/*.py'
       - '.github/workflows/ci.yaml'
       - 'pyproject.toml'
-      - 'poetry.lock'
+      - 'uv.lock'
       - 'tox.ini'
       - '.python-version'
       - '.github/workflows/apprise.yaml'
-      - '.github/workflows/publish-to-pypi.yaml'
+      - '.github/workflows/release.yml'
       - 'scripts/release/**'
   workflow_dispatch:
 

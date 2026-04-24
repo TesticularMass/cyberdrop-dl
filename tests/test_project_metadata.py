@@ -17,6 +17,11 @@ def _load_workflow(name: str) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf8"))
 
 
+def _load_workflow_text(name: str) -> str:
+    path = ROOT / ".github" / "workflows" / name
+    return path.read_text(encoding="utf8")
+
+
 def _load_workflow_triggers(name: str) -> dict:
     workflow = _load_workflow(name)
     if "on" in workflow:
@@ -47,9 +52,17 @@ def _python_version_for_step(workflow: dict, job: str, step_name: str) -> str:
 
 def test_runtime_metadata_targets_python_313_plus() -> None:
     pyproject = _load_pyproject()
+    classifiers = set(pyproject["project"]["classifiers"])
     assert pyproject["project"]["requires-python"] == ">=3.13,<4"
     assert pyproject["tool"]["ruff"]["target-version"] == "py313"
     assert (ROOT / ".python-version").read_text(encoding="utf8").strip() == "3.13"
+    assert "Programming Language :: Python :: 3.13" in classifiers
+    assert "Programming Language :: Python :: 3.14" in classifiers
+    assert "Programming Language :: Python :: 3.11" not in classifiers
+    assert "Programming Language :: Python :: 3.12" not in classifiers
+    assert (ROOT / "uv.lock").exists()
+    assert not (ROOT / "poetry.lock").exists()
+    assert '# requires-python = ">=3.13"' in (ROOT / "scripts" / "tools" / "filter_logs.py").read_text(encoding="utf8")
 
 
 def test_tox_and_ci_only_cover_supported_python_versions() -> None:
@@ -65,18 +78,54 @@ def test_tox_and_ci_only_cover_supported_python_versions() -> None:
     no_build_versions = {str(item) for item in ci_workflow["jobs"]["no-build"]["strategy"]["matrix"]["python-version"]}
     test_versions = {str(item) for item in ci_workflow["jobs"]["test"]["strategy"]["matrix"]["python-version"]}
 
-    assert "poetry.lock" in push_paths
-    assert "poetry.lock" in pull_request_paths
+    assert "uv.lock" in push_paths
+    assert "uv.lock" in pull_request_paths
+    assert "poetry.lock" not in push_paths
+    assert "poetry.lock" not in pull_request_paths
+    assert ".github/workflows/release.yml" in push_paths
+    assert ".github/workflows/release.yml" in pull_request_paths
     assert no_build_versions == {"3.13", "3.14"}
     assert test_versions == {"3.13", "3.14"}
 
 
-def test_auxiliary_workflows_use_supported_python_floor() -> None:
+def test_auxiliary_workflows_use_supported_uv_baseline() -> None:
     apprise = _load_workflow("apprise.yaml")
-    publish = _load_workflow("publish-to-pypi.yaml")
+    apprise_triggers = _load_workflow_triggers("apprise.yaml")
+    apprise_text = _load_workflow_text("apprise.yaml")
+    release_triggers = _load_workflow_triggers("release.yml")
+    release_text = _load_workflow_text("release.yml")
 
-    assert _python_version_for_step(apprise, "test_apprise", "Set up Python 3.13") == "3.13"
-    assert _python_version_for_step(publish, "release", "Set up Python 3.13") == "3.13"
+    assert apprise_triggers["push"]["branches"] == ["main"]
+    assert apprise_triggers["pull_request"]["branches"] == ["main"]
+    assert _python_version_for_step(apprise, "test_apprise", "Install uv") == "3.13"
+    assert ".github/workflows/apprise.yaml" in apprise_triggers["push"]["paths"]
+    assert ".github/workflows/apprise.yaml" in apprise_triggers["pull_request"]["paths"]
+    assert "pyproject.toml" in apprise_triggers["push"]["paths"]
+    assert "pyproject.toml" in apprise_triggers["pull_request"]["paths"]
+    assert "uv.lock" in apprise_triggers["push"]["paths"]
+    assert "uv.lock" in apprise_triggers["pull_request"]["paths"]
+    assert "tests/test_apprise.py" in apprise_triggers["push"]["paths"]
+    assert "tests/test_apprise.py" in apprise_triggers["pull_request"]["paths"]
+
+    assert "snok/install-poetry" not in apprise_text
+    assert "poetry install" not in apprise_text
+    assert "poetry run pytest" not in apprise_text
+    assert "setup-uv" in apprise_text
+    assert "uv sync --all-extras" in apprise_text
+    assert "uv run pytest --cov" in apprise_text
+
+    assert not (ROOT / ".github" / "workflows" / "publish-to-pypi.yaml").exists()
+    assert "branches" not in release_triggers["push"]
+    assert release_triggers["push"]["tags"] == ["[0-9]+.[0-9]+.[0-9]+*"]
+    assert "refs/heads/master" not in release_text
+    assert "poetry version --short" not in release_text
+    assert "poetry build" not in release_text
+    assert "poetry publish" not in release_text
+    assert "setup-uv" in release_text
+    assert "uv version --short" in release_text
+    assert "uv python install 3.13" in release_text
+    assert "uv build" in release_text
+    assert "uv publish" in release_text
 
 
 def test_release_launchers_use_supported_python_selector() -> None:
