@@ -4,14 +4,15 @@ import dataclasses
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.exceptions import LoginError, ScrapeError
-from cyberdrop_dl.utils.utilities import error_handling_wrapper, type_adapter
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.utils.dataclass import DictDataclass
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 _PRIMARY_URL = AbsoluteHttpURL("https://www.dropbox.com")
@@ -19,14 +20,11 @@ _FOLDERS_API_ENDPOINT = _PRIMARY_URL / "list_shared_link_folder_entries"
 
 
 @dataclasses.dataclass(slots=True)
-class Node:
+class Node(DictDataclass):
     is_dir: bool
     href: str
     filename: str
     secureHash: str = ""  # noqa: N815
-
-
-_parse_node = type_adapter(Node)
 
 
 class DropboxCrawler(Crawler):
@@ -44,13 +42,14 @@ class DropboxCrawler(Crawler):
     PRIMARY_URL: ClassVar[AbsoluteHttpURL] = _PRIMARY_URL
     DOMAIN: ClassVar[str] = "dropbox"
 
-    async def async_startup(self) -> None:
-        await self._get_web_token(self.PRIMARY_URL)
+    async def __async_post_init__(self) -> None:
+        self._token: str = ""
+        await self._get_web_token()
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         match scrape_item.url.parts[1:]:
             case ["s" | "sh", _, *_]:
-                return await self.follow_redirect(scrape_item)
+                return await self.follow_db_redirect(scrape_item)
             case ["scl", "fi", _, *_]:
                 return await self.file(scrape_item)
             case ["scl", "fo", link_key, secure_hash]:
@@ -61,14 +60,14 @@ class DropboxCrawler(Crawler):
                 raise ValueError
 
     @error_handling_wrapper
-    async def follow_redirect(self, scrape_item: ScrapeItem) -> None:
+    async def follow_db_redirect(self, scrape_item: ScrapeItem) -> None:
         async with self.request(scrape_item.url) as resp:
             if "s" in resp.url.parts or "sh" in resp.url.parts:
                 if "error_pages/no_access" in await resp.text():
                     raise ScrapeError(401)
                 raise ScrapeError(422, "Infinite redirect")
         scrape_item.url = resp.url
-        await self.fetch(scrape_item)
+        self.create_task(self.run(scrape_item))
 
     @error_handling_wrapper
     async def folder(self, scrape_item: ScrapeItem, link_key: str, secure_hash: str) -> None:
@@ -81,7 +80,7 @@ class DropboxCrawler(Crawler):
     async def file(self, scrape_item: ScrapeItem) -> None:
         scrape_item.url = await self._ensure_rlkey(scrape_item.url)
         async with self.request(scrape_item.url.update_query(dl=1)) as resp:
-            self._file(scrape_item, resp.filename)
+            self._file(scrape_item, resp.content_disposition.filename)
 
     def _file(self, scrape_item: ScrapeItem, filename: str) -> None:
         scrape_item.url = view_url = scrape_item.url.with_query(rlkey=scrape_item.url.query["rlkey"], dl=0)
@@ -119,10 +118,10 @@ class DropboxCrawler(Crawler):
             if "folder" not in resp:
                 return await self.file(scrape_item)
             folder_name: str = resp["folder"]["filename"]
-            scrape_item.add_to_parent_title(self.create_title(folder_name))
+            scrape_item.append_folders(self.create_title(folder_name))
 
             for entry, token in zip(resp["entries"], resp["share_tokens"], strict=True):
-                node = _parse_node(token | entry)
+                node = Node.from_dict(token | entry)
                 view_url = self.parse_url(node.href)
                 new_scrape_item = scrape_item.create_child(view_url)
                 if node.is_dir:
@@ -167,12 +166,10 @@ class DropboxCrawler(Crawler):
                 break
             payload["voucher"] = resp["next_request_voucher"]
 
-    @error_handling_wrapper
-    async def _get_web_token(self, *_):
-        async with self.request(self.PRIMARY_URL, method="HEAD", cache_disabled=True):
-            token = self.get_cookie_value("t")
-            if not token:
-                self.disabled = True
-                msg = "Unable to get token from dropbox. Crawler has been disabled"
-                raise LoginError(msg)
-            self._token = token
+    async def _get_web_token(self) -> None:
+        with self.catch_errors(self.PRIMARY_URL), self.disable_on_error("Unable to get token from dropbox"):
+            async with self.request(self.PRIMARY_URL, method="HEAD"):
+                token = self.cookies.get("t")
+                if not token:
+                    raise LoginError
+                self._token = token

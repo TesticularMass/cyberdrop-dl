@@ -17,16 +17,16 @@ from typing import TYPE_CHECKING, ClassVar
 from bs4 import BeautifulSoup
 
 from cyberdrop_dl.crawlers._forum import HTMLMessageBoardCrawler, MessageBoardSelectors, PostSelectors
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.exceptions import LoginError, ScrapeError
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.utils import css
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
     from cyberdrop_dl.crawlers.crawler import SupportedPaths
-    from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
+    from cyberdrop_dl.url_objects import AbsoluteHttpURL
 
 
 Selector = css.CssAttributeSelector
@@ -75,14 +75,10 @@ class XenforoCrawler(HTMLMessageBoardCrawler, is_abc=True):
     PAGE_URL_PART_NAME: ClassVar[str] = "page"
     IGNORE_EMBEDED_IMAGES_SRC: ClassVar[bool] = True
     LOGIN_USER_COOKIE_NAME: ClassVar[str] = "xf_user"
+    _FORUM: ClassVar[bool] = True
     # Attachments hosts should technically be defined on each specific Crawler, but they do no harm here
     ATTACHMENT_HOSTS = "smgmedia", "attachments.f95zone"
     login_required = True
-
-    def get_filename_and_ext(self, filename: str) -> tuple[str, str]:
-        # The `forum` keyword is misleading now. It only works for Xenforo sites, not every forum
-        # TODO: Change `forum` parameter to `xenforo`
-        return super().get_filename_and_ext(filename, forum=True)
 
     @error_handling_wrapper
     async def xf_login(self, login_url: AbsoluteHttpURL, session_cookie: str, username: str, password: str) -> None:
@@ -102,9 +98,9 @@ class XenforoCrawler(HTMLMessageBoardCrawler, is_abc=True):
             self.update_cookies(cookies)
 
         credentials = {"login": username, "password": password, "_xfRedirect": str(self.PRIMARY_URL)}
-        await self.xf_try_login(login_url, credentials, retries=5)
+        await self._xf_try_login(login_url, credentials, retries=5)
 
-    async def xf_try_login(
+    async def _xf_try_login(
         self,
         login_url: AbsoluteHttpURL,
         credentials: dict[str, str],
@@ -114,7 +110,7 @@ class XenforoCrawler(HTMLMessageBoardCrawler, is_abc=True):
         # Check first if we have cookies and they are valid
         text, logged_in = await self.check_login_with_request(login_url)
         if logged_in:
-            self.logged_in = True
+            self._logged_in = True
             return
 
         wait_time = wait_time or retries
@@ -124,17 +120,12 @@ class XenforoCrawler(HTMLMessageBoardCrawler, is_abc=True):
                 attempt += 1
                 await asyncio.sleep(wait_time)
                 data = parse_login_form(text) | credentials
-                async with self.request(
-                    login_url / "login",
-                    method="POST",
-                    data=data,
-                    cache_disabled=True,
-                ):
+                async with self.request(login_url / "login", method="POST", data=data):
                     pass
                 await asyncio.sleep(wait_time)
                 text, logged_in = await self.check_login_with_request(login_url)
                 if logged_in:
-                    self.logged_in = True
+                    self._logged_in = True
                     return
             except TimeoutError:
                 continue
@@ -149,7 +140,7 @@ def parse_login_form(resp_text: str) -> dict[str, str]:
     data = {
         name: value
         for elem in inputs
-        if (name := css.get_attr_or_none(elem, "name")) and (value := css.get_attr_or_none(elem, "value"))
+        if (name := css.attr_or_none(elem, "name")) and (value := css.attr_or_none(elem, "value"))
     }
     if data:
         return data

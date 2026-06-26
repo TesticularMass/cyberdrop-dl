@@ -4,17 +4,17 @@ import itertools
 from typing import TYPE_CHECKING, ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedDomains, SupportedPaths
-from cyberdrop_dl.data_structures.mediaprops import Resolution
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.mediaprops import Resolution
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.utils import css
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
     from bs4 import BeautifulSoup
 
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 class MyDesiCrawler(Crawler):
@@ -44,16 +44,16 @@ class MyDesiCrawler(Crawler):
 
     @error_handling_wrapper
     async def video(self, scrape_item: ScrapeItem) -> None:
-        if await self.check_complete_from_referer(scrape_item):
-            return
+        if await self.check_complete_from_referer(scrape_item.url):
+            return None
 
         soup = await self.request_soup(scrape_item.url)
         resolution, link = max(_parse_formats(soup))
         link = self.parse_url(link)
         _, ext = self.get_filename_and_ext(link.name)
-        metadata: dict[str, str] = css.get_json_ld(soup)["subjectOf"]
+        metadata: dict[str, str] = css.json_ld(soup)["subjectOf"]
         title = metadata["name"]
-        scrape_item.possible_datetime = self.parse_iso_date(metadata.get("uploadDate", ""))
+        scrape_item.uploaded_at = self.parse_iso_date(metadata.get("uploadDate", ""))
         custom_filename = self.create_custom_filename(title, ext, resolution=resolution)
         return await self.handle_file(link, scrape_item, title, ext, custom_filename=custom_filename)
 
@@ -66,7 +66,7 @@ class MyDesiCrawler(Crawler):
         for page in itertools.count(init_page):
             soup = await self.request_soup(base_url / str(page))
             n_videos = 0
-            for _, new_scrape_item in self.iter_children(scrape_item, soup, "a.infos"):
+            for new_scrape_item in self.iter_children(scrape_item, soup, "a.infos"):
                 n_videos += 1
                 self.create_task(self.run(new_scrape_item))
 
@@ -76,7 +76,7 @@ class MyDesiCrawler(Crawler):
 
 def _parse_formats(soup: BeautifulSoup) -> Generator[tuple[Resolution, str]]:
     for src in soup.select("#video-rate > a"):
-        quality = css.get_attr(src, "title")
-        link = css.get_attr(src, "href")
+        quality = css.attr(src, "title")
+        link = css.attr(src, "href")
         resolution = Resolution.highest() if "original" in quality.casefold() else Resolution.parse(quality)
         yield resolution, link

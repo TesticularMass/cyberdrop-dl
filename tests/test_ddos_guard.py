@@ -1,9 +1,11 @@
-import hashlib
+import dataclasses
 
 import pytest
 from bs4 import BeautifulSoup
+from multidict import CIMultiDict
 
 from cyberdrop_dl import ddos_guard
+from cyberdrop_dl.clients.request import prepare_headers
 from cyberdrop_dl.exceptions import DDOSGuardError
 
 anubis_html = """
@@ -52,16 +54,77 @@ async def test_solve_anubis_challenge() -> None:
     challenge = ddos_guard.Anubis.parse_challenge(anubis_soup)
     assert challenge
     solution = await ddos_guard.Anubis.solve(challenge)
-    assert solution.id == "019abb13-2859-7587-bec3-16e0a3f67ce9"
-    assert solution.difficulty == 5
-    assert solution.workers == max(ddos_guard.cpu_count() // 2, 1)
-    assert solution.total_time >= 0
-
-    expected_hash = hashlib.sha256(f"{challenge.data}{solution.nonce}".encode()).hexdigest()
-    assert solution.hash == expected_hash
-    assert solution.hash.startswith("0" * challenge.difficulty)
+    assert solution == ddos_guard._AnubisSolution(
+        id="019abb13-2859-7587-bec3-16e0a3f67ce9",
+        nonce=1676094,
+        hash="00000e426afc08534b13bb3f75bad02dc20d73d70674b9dc174416cc7d3685e6",
+        workers=2,
+        difficulty=5,
+        total_time=0,
+    )
 
 
 async def test_ddos_response_should_raise_ddos_guard_error() -> None:
     with pytest.raises(DDOSGuardError):
-        await ddos_guard.check(anubis_html)
+        ddos_guard.check_html(anubis_html)
+
+
+@dataclasses.dataclass(slots=True)
+class DummyResponse:
+    headers: CIMultiDict[str]
+    status: int = 403
+    _text: str = ""
+    content_type: str = "html"
+
+    async def text(self) -> str:
+        return self._text
+
+
+@pytest.mark.parametrize(
+    ("headers", "status_code", "cls", "expected"),
+    [
+        ({}, 403, ddos_guard.DDosGuard, False),
+        ({"server": "ddos-guard"}, 403, ddos_guard.DDosGuard, True),
+        ({"server": "ddos-guard"}, 200, ddos_guard.DDosGuard, True),
+        ({"server": "ddos-guard"}, 403, ddos_guard.Anubis, False),
+        (
+            {
+                "set-cookie": "techaro.lol-anubis-auth=; Path=/; Expires=Sat, 30 May 2026 11:53:24 GMT; Max-Age=0; Secure; SameSite=None"
+            },
+            200,
+            ddos_guard.Anubis,
+            True,
+        ),
+        ({"server": "ddos-guard"}, 403, ddos_guard.CloudFlareTurnstile, False),
+        ({"server": "cloudflare", "cf-mitigated": "challenge"}, 403, ddos_guard.CloudFlareTurnstile, True),
+        ({}, 403, ddos_guard.CloudFlareTurnstile, False),
+        ({"server": "cloudflare", "cf-mitigated": "challenge"}, 200, ddos_guard.CloudFlareTurnstile, True),
+    ],
+)
+def test_may_by_challenge(
+    headers: dict[str, str], status_code: int, cls: type[ddos_guard.DDosGuard], *, expected: bool
+) -> None:
+
+    resp = DummyResponse(prepare_headers(headers), status_code)
+    assert cls.may_be_challenge(resp) is expected
+
+
+@pytest.mark.parametrize(
+    ("headers", "status_code", "cls", "expected"),
+    [
+        ({}, 403, ddos_guard.DDosGuard, False),
+        ({"server": "ddos-guard"}, 403, ddos_guard.DDosGuard, False),
+        ({"server": "ddos-guard"}, 200, ddos_guard.DDosGuard, False),
+        ({"server": "ddos-guard"}, 403, ddos_guard.Anubis, False),
+        ({"server": "ddos-guard"}, 403, ddos_guard.CloudFlareTurnstile, False),
+        ({"server": "cloudflare", "cf-mitigated": "challenge"}, 403, ddos_guard.CloudFlareTurnstile, True),
+        ({"server": "cloudflare", "cf-mitigated": "challenge"}, 200, ddos_guard.CloudFlareTurnstile, True),
+        ({"server": "ddos-guard", "cf-mitigated": "challenge"}, 200, ddos_guard.CloudFlareTurnstile, False),
+    ],
+)
+def test_is_confirmed_challenge(
+    headers: dict[str, str], status_code: int, cls: type[ddos_guard.DDosGuard], *, expected: bool
+) -> None:
+
+    resp = DummyResponse(prepare_headers(headers), status_code)
+    assert cls.is_confirmed_challenge(resp) is expected

@@ -6,14 +6,14 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from pydantic.alias_generators import to_snake
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.utils import css
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 class VSCOCrawler(Crawler):
@@ -41,7 +41,7 @@ class VSCOCrawler(Crawler):
 
     @error_handling_wrapper
     async def media(self, scrape_item: ScrapeItem, user: str, type_: str, id_: str) -> None:
-        if await self.check_complete_from_referer(scrape_item):
+        if await self.check_complete_from_referer(scrape_item.url):
             return
 
         scrape_item.setup_as_profile(self.create_title(user))
@@ -72,7 +72,7 @@ class VSCOCrawler(Crawler):
     async def _file(self, scrape_item: ScrapeItem, file: dict[str, Any]) -> None:
         file = {to_snake(key): value for key, value in file.items()}
         file["id"] = file.get("id") or file["_id"]
-        scrape_item.possible_datetime = (file.get("upload_date") or file["created_date"]) // 1000
+        scrape_item.uploaded_at = (file.get("upload_date") or file["created_date"]) // 1000
         if file["type"] == "image":
             return await self._image(scrape_item, file)
         await self._video(scrape_item, file)
@@ -97,11 +97,11 @@ class VSCOCrawler(Crawler):
         m3u8 = res = None
         ext = url.suffix
         if ext == ".m3u8":
-            if await self.check_complete_from_referer(scrape_item):
+            if await self.check_complete_from_referer(scrape_item.url):
                 return
 
             ext = ".mp4"
-            m3u8, info = await self.get_m3u8_from_playlist_url(url)
+            m3u8, info = await self.request_m3u8_playlist(url)
             res = info.resolution
 
         name, ext = self.get_filename_and_ext(video["id"] + ext)

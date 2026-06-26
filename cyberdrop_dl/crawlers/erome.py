@@ -3,12 +3,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.utils import open_graph
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 class Selector:
@@ -44,23 +44,29 @@ class EromeCrawler(Crawler):
     async def profile(self, scrape_item: ScrapeItem, name: str) -> None:
         title = self.create_title(name)
         scrape_item.setup_as_profile(title)
-        await self.crawl_children(scrape_item, Selector.ALBUM)
+
+        async for soup in self.web_pager(scrape_item.url):
+            for new_item in self.iter_children(scrape_item, soup, Selector.ALBUM):
+                self.create_task(self.run(new_item))
 
     @error_handling_wrapper
     async def search(self, scrape_item: ScrapeItem, query: str) -> None:
         title = self.create_title(f"{query} [search]")
         scrape_item.setup_as_album(title)
-        await self.crawl_children(scrape_item, Selector.ALBUM)
+        async for soup in self.web_pager(scrape_item.url):
+            for new_item in self.iter_children(scrape_item, soup, Selector.ALBUM):
+                self.create_task(self.run(new_item))
 
     @error_handling_wrapper
     async def album(self, scrape_item: ScrapeItem, album_id: str) -> None:
-        results = await self.get_album_results(album_id)
         soup = await self.request_soup(scrape_item.url)
         name = open_graph.title(soup).removesuffix("- EroMe")
         title = self.create_title(name, album_id)
         scrape_item.setup_as_album(title, album_id=album_id)
 
-        for _, link in self.iter_tags(soup, Selector.MEDIA, "src", results=results):
+        should_download = await self.make_album_checker(album_id)
+        images = filter(should_download, self.iter_urls(soup, Selector.MEDIA, "src"))
+        for link in images:
             self.create_task(self.direct_file(scrape_item, link))
             scrape_item.add_children()
 

@@ -2,21 +2,22 @@ from __future__ import annotations
 
 import json
 from enum import StrEnum
-from typing import TYPE_CHECKING, ClassVar, NamedTuple
+from typing import TYPE_CHECKING, ClassVar
 
-from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.crawlers.crawler import Crawler, RateLimit, SupportedPaths
 from cyberdrop_dl.exceptions import ScrapeError
-from cyberdrop_dl.utils import css
-from cyberdrop_dl.utils.utilities import error_handling_wrapper, get_text_between
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.utils import css, extr_text, m3u8
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
     from bs4 import BeautifulSoup, Tag
 
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.mediaprops import Resolution
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
-class Selectors:
+class Selector:
     PROFILE_VIDEOS = "div.sub-content div.media-item__inner > a[data-video-preview]"
     SEARCH_VIDEOS = "div.main-content div.media-item__inner > a[data-video-preview]"
     USER_NAME = "h1.username"
@@ -31,15 +32,6 @@ class Selectors:
     NEXT_PAGE = "a.rightKey"
 
 
-_SELECTORS = Selectors()
-
-
-class Format(NamedTuple):
-    resolution: str
-    url: AbsoluteHttpURL
-    hls: bool
-
-
 class CollectionType(StrEnum):
     ALBUM = "album"
     MODEL = "model"
@@ -49,19 +41,19 @@ class CollectionType(StrEnum):
 
 
 MEDIA_SELECTOR_MAP = {
-    CollectionType.ALBUM: _SELECTORS.ALBUM_IMAGES,
-    CollectionType.MODEL: _SELECTORS.PROFILE_VIDEOS,
-    CollectionType.PLAYLIST: _SELECTORS.PLAYLIST_VIDEOS,
-    CollectionType.SEARCH: _SELECTORS.SEARCH_VIDEOS,
-    CollectionType.PROFILE: _SELECTORS.ALBUM_IMAGES,
+    CollectionType.ALBUM: Selector.ALBUM_IMAGES,
+    CollectionType.MODEL: Selector.PROFILE_VIDEOS,
+    CollectionType.PLAYLIST: Selector.PLAYLIST_VIDEOS,
+    CollectionType.SEARCH: Selector.SEARCH_VIDEOS,
+    CollectionType.PROFILE: Selector.ALBUM_IMAGES,
 }
 
 TITLE_SELECTOR_MAP = {
-    CollectionType.ALBUM: _SELECTORS.ALBUM_TITLE,
-    CollectionType.MODEL: _SELECTORS.USER_NAME,
+    CollectionType.ALBUM: Selector.ALBUM_TITLE,
+    CollectionType.MODEL: Selector.USER_NAME,
     CollectionType.PLAYLIST: "h1",
     CollectionType.SEARCH: "h1",
-    CollectionType.PROFILE: _SELECTORS.USER_NAME,
+    CollectionType.PROFILE: Selector.USER_NAME,
 }
 
 TITLE_TRASH = "Shemale Porn Videos - Trending"
@@ -78,10 +70,10 @@ class AShemaleTubeCrawler(Crawler):
     DOMAIN: ClassVar[str] = "ashemaletube"
     FOLDER_DOMAIN: ClassVar[str] = "aShemaleTube"
     PRIMARY_URL: ClassVar[AbsoluteHttpURL] = PRIMARY_URL
-    NEXT_PAGE_SELECTOR: ClassVar[str] = _SELECTORS.NEXT_PAGE
-    _RATE_LIMIT = 3, 10
+    NEXT_PAGE_SELECTOR: ClassVar[str] = Selector.NEXT_PAGE
+    _RATE_LIMIT: ClassVar[RateLimit] = 3, 10
 
-    async def fetch(self, scrape_item: ScrapeItem) -> None:
+    async def fetch(self, scrape_item: ScrapeItem) -> None:  # noqa: PLR0911
         if any(p in scrape_item.url.parts for p in ("creators", "profiles", "pornstars", "model")):
             if "galleries" in scrape_item.url.parts:
                 return await self.gallery(scrape_item)
@@ -104,14 +96,14 @@ class AShemaleTubeCrawler(Crawler):
 
     @error_handling_wrapper
     async def gallery(self, scrape_item: ScrapeItem) -> None:
-        async for soup in self.web_pager(scrape_item.url, cffi=True):
-            for _, new_scrape_item in self.iter_children(scrape_item, soup, _SELECTORS.GALLERY_ALBUM):
+        async for soup in self.web_pager(scrape_item.url, impersonate=True):
+            for new_scrape_item in self.iter_children(scrape_item, soup, Selector.GALLERY_ALBUM):
                 self.create_task(self.run(new_scrape_item))
 
     @error_handling_wrapper
     async def album(self, scrape_item: ScrapeItem) -> None:
         album_title = ""
-        async for soup in self.web_pager(scrape_item.url, cffi=True):
+        async for soup in self.web_pager(scrape_item.url, impersonate=True):
             if not album_title:
                 album_title = self.create_collection_title(soup, CollectionType.ALBUM)
                 scrape_item.setup_as_album(album_title)
@@ -122,14 +114,14 @@ class AShemaleTubeCrawler(Crawler):
     @error_handling_wrapper
     async def collection(self, scrape_item: ScrapeItem, collection_type: CollectionType) -> None:
         collection_title = ""
-        async for soup in self.web_pager(scrape_item.url, cffi=True):
+        async for soup in self.web_pager(scrape_item.url, impersonate=True):
             if not collection_title:
                 collection_title = self.create_collection_title(soup, collection_type)
                 if collection_type == CollectionType.MODEL:
                     scrape_item.setup_as_profile(collection_title)
                 else:
                     scrape_item.setup_as_album(collection_title)
-            for _, new_scrape_item in self.iter_children(scrape_item, soup, MEDIA_SELECTOR_MAP[collection_type]):
+            for new_scrape_item in self.iter_children(scrape_item, soup, MEDIA_SELECTOR_MAP[collection_type]):
                 self.create_task(self.run(new_scrape_item))
 
     def create_collection_title(self, soup: BeautifulSoup, collection_type: CollectionType) -> str:
@@ -138,15 +130,14 @@ class AShemaleTubeCrawler(Crawler):
             raise ScrapeError(401)
         collection_title: str = title_elem.get_text(strip=True)
         collection_title = collection_title.replace(TITLE_TRASH, "").strip()
-        collection_title = self.create_title(f"{collection_title} [{collection_type}]")
-        return collection_title
+        return self.create_title(f"{collection_title} [{collection_type}]")
 
     @error_handling_wrapper
     async def image(self, scrape_item: ScrapeItem) -> None:
         if await self.check_complete_from_referer(scrape_item.url):
             return
         soup = await self.request_soup(scrape_item.url, impersonate=True)
-        img_item = soup.select_one(_SELECTORS.IMAGE_ITEM)
+        img_item = soup.select_one(Selector.IMAGE_ITEM)
         if not img_item:
             raise ScrapeError(404)
         await self.proccess_image(scrape_item, img_item)
@@ -154,13 +145,13 @@ class AShemaleTubeCrawler(Crawler):
     @error_handling_wrapper
     async def proccess_image(self, scrape_item: ScrapeItem, img_tag: Tag) -> None:
         if image := img_tag.select_one("img"):
-            link_str: str = css.get_attr(image, "src")
+            link_str: str = css.attr(image, "src")
         else:
             style: str = css.select(img_tag, "a", "style")
-            link_str = get_text_between(style, "url('", "');")
+            link_str = extr_text(style, "url('", "');")
         url = self.parse_url(link_str).with_query(None)
         filename, ext = self.get_filename_and_ext(url.name)
-        custom_filename = self.create_custom_filename(filename, ext, file_id=css.get_attr(img_tag, "data-image-id"))
+        custom_filename = self.create_custom_filename(filename, ext, file_id=css.attr(img_tag, "data-image-id"))
         await self.handle_file(url, scrape_item, filename, ext, custom_filename=custom_filename)
 
     @error_handling_wrapper
@@ -168,28 +159,23 @@ class AShemaleTubeCrawler(Crawler):
         video_id: str = scrape_item.url.parts[2]
         canonical_url = PRIMARY_URL / "videos" / video_id
         if await self.check_complete_from_referer(canonical_url):
-            return
+            return None
 
         soup = await self.request_soup(scrape_item.url, impersonate=True)
 
-        if soup.select_one(_SELECTORS.LOGIN_REQUIRED):
+        if soup.select_one(Selector.LOGIN_REQUIRED):
             raise ScrapeError(401)
-        js_text = css.select_text(soup, _SELECTORS.JS_PLAYER)
-        best_format = parse_player_info(js_text)
-        m3u8 = debrid_link = None
-        if best_format.hls:
-            m3u8 = await self.get_m3u8_from_index_url(best_format.url)
-        else:
-            debrid_link = best_format.url
+        js_text = css.select_text(soup, Selector.JS_PLAYER)
+        resolution, url, m3u8 = await self.parse_player_info(js_text)
 
-        if video_object := soup.select_one(_SELECTORS.VIDEO_PROPS_JS):
-            json_data = json.loads(css.get_text(video_object))
-            scrape_item.possible_datetime = self.parse_iso_date(json_data.get("uploadDate", ""))
+        if video_object := soup.select_one(Selector.VIDEO_PROPS_JS):
+            json_data = json.loads(css.text(video_object))
+            scrape_item.uploaded_at = self.parse_iso_date(json_data.get("uploadDate", ""))
 
         title = css.select_text(soup, "title").split("- aShemaletube.com")[0].strip()
         scrape_item.url = canonical_url
-        filename, ext = self.get_filename_and_ext(best_format.url.name, assume_ext=".mp4")
-        custom_filename = self.create_custom_filename(title, ext, file_id=video_id, resolution=best_format.resolution)
+        filename, ext = self.get_filename_and_ext(url.name, assume_ext=".mp4")
+        custom_filename = self.create_custom_filename(title, ext, file_id=video_id, resolution=resolution)
 
         return await self.handle_file(
             canonical_url,
@@ -198,14 +184,13 @@ class AShemaleTubeCrawler(Crawler):
             ext,
             custom_filename=custom_filename,
             m3u8=m3u8,
-            debrid_link=debrid_link,
         )
 
+    async def parse_player_info(self, script_text: str) -> tuple[Resolution, AbsoluteHttpURL, m3u8.Rendition]:
+        sources = extr_text(script_text, "sources: ", "aspectRatio").strip().strip(",")
+        sources_data = json.loads(sources)
+        url = self.parse_url(sources_data["hlsAuto"])
 
-def parse_player_info(script_text: str) -> Format:
-    def get_resolution(video) -> int:
-        return int(video["desc"].rstrip("p"))
+        rendition, playlist_info = await self.request_m3u8_playlist(url)
 
-    sources = get_text_between(script_text, "var sources = ", "var multiSource =").strip().strip(";")
-    video_data = max(json.loads(sources), key=get_resolution)
-    return Format(video_data["desc"], AbsoluteHttpURL(video_data["src"]), video_data["hls"])
+        return playlist_info.resolution, url, rendition

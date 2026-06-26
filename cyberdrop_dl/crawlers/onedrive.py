@@ -4,19 +4,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
-from functools import partial
+import dataclasses
+import functools
 from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedDomains, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.exceptions import ScrapeError
-from cyberdrop_dl.utils.dates import to_timestamp
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.utils import dates
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 API_ENTRYPOINT = AbsoluteHttpURL("https://api.onedrive.com/v1.0/drives/")
@@ -30,7 +29,7 @@ APP_ID = "1141147648"
 APP_UUID = "5cbed6ac-a083-4e14-b191-b4ba07653de2"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class AccessDetails:
     container_id: str
     resid: str
@@ -52,7 +51,7 @@ class AccessDetails:
         return AccessDetails(container_id, resid, auth_key, redeem)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class OneDriveItem:
     id: str
     url: AbsoluteHttpURL
@@ -62,24 +61,24 @@ class OneDriveItem:
     access_details: AccessDetails
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class OneDriveFile(OneDriveItem):
     download_url: AbsoluteHttpURL
 
     @classmethod
-    def from_api_response(cls, json_resp: dict, access_details: AccessDetails) -> Self:
+    def from_api_response(cls, json_resp: dict[str, Any], access_details: AccessDetails) -> Self:
         info = parse_api_response(json_resp, access_details)
         download_url_str = json_resp["@content.downloadUrl"]
         info["download_url"] = AbsoluteHttpURL(download_url_str, encoded="%" in download_url_str)
         return cls(**info)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class OneDriveFolder(OneDriveItem):
     children: list[dict[str, Any]]
 
     @classmethod
-    def from_api_response(cls, json_resp: dict, access_details: AccessDetails) -> Self:
+    def from_api_response(cls, json_resp: dict[str, Any], access_details: AccessDetails) -> Self:
         info = parse_api_response(json_resp, access_details)
         info["children"] = json_resp["children"]
         return cls(**info)
@@ -97,26 +96,14 @@ class OneDriveCrawler(Crawler):
     }
     SUPPORTED_DOMAINS: ClassVar[SupportedDomains] = SHARE_LINK_HOST, "onedrive.live.com"
     PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://onedrive.com/")
-    SKIP_PRE_CHECK: ClassVar[bool] = True  # URLs with not path could be valid
+    ALLOW_EMPTY_PATH: ClassVar[bool] = True
     DOMAIN: ClassVar[str] = "onedrive"
     FOLDER_DOMAIN: ClassVar[str] = "OneDrive"
 
     def __post_init__(self) -> None:
-        badger_token: str = self.manager.cache_manager.get("onedrive_badger_token") or ""
-        badger_token_expires: str = self.manager.cache_manager.get("onedrive_badger_token_expires") or ""
-        self.auth_headers = {}
-        expired = True
-        if badger_token_expires:
-            if badger_token_expires.endswith("Z"):
-                badger_token_expires = badger_token_expires.replace("Z", "+00:00")
-            expire_datetime = datetime.fromisoformat(badger_token_expires)
-            t_delta = expire_datetime - datetime.now(UTC)
-            if t_delta > timedelta(hours=12):
-                expired = False
-        if badger_token and not expired:
-            self.auth_headers = {"Prefer": "autoredeem", "Authorization": f"Badger {badger_token}"}
+        self.auth_headers: dict[str, str] = {}
 
-    async def async_startup(self) -> None:
+    async def __async_post_init__(self) -> None:
         if self.auth_headers:
             return
         await self.get_badger_token(BADGER_URL)
@@ -139,7 +126,7 @@ class OneDriveCrawler(Crawler):
     async def link_with_credentials(
         self, scrape_item: ScrapeItem, og_share_link: AbsoluteHttpURL | None = None
     ) -> None:
-        if await self.check_complete_from_referer(scrape_item):
+        if await self.check_complete_from_referer(scrape_item.url):
             return
 
         if og_share_link and await self.check_complete_from_referer(og_share_link):
@@ -159,7 +146,7 @@ class OneDriveCrawler(Crawler):
             raise ScrapeError(401)
 
         api_url = create_api_url(access_details)
-        json_resp: dict = await self.make_api_request(api_url)
+        json_resp: dict[str, Any] = await self.make_api_request(api_url)
 
         if not is_folder(json_resp):
             file = OneDriveFile.from_api_response(json_resp, access_details)
@@ -176,7 +163,7 @@ class OneDriveCrawler(Crawler):
 
         subfolders: list[AccessDetails] = []
         old_ad = folder.access_details
-        new_access_details = partial(AccessDetails, auth_key=old_ad.auth_key, redeem=old_ad.redeem)
+        new_access_details = functools.partial(AccessDetails, auth_key=old_ad.auth_key, redeem=old_ad.redeem)
 
         for item in folder.children:
             if is_folder(item):
@@ -203,7 +190,7 @@ class OneDriveCrawler(Crawler):
         # file.url should be API URL, ex: https://api.onedrive.com/v1.0/drives/<container_id>/items/<resid>?authkey=<auth_key>
         # Auth key will be removed in database but a new one can be generated from scrape_item.url
         filename, ext = self.get_filename_and_ext(file.name)
-        scrape_item.possible_datetime = file.date
+        scrape_item.uploaded_at = file.date
         await self.handle_file(file.url, scrape_item, filename, ext, debrid_link=file.download_url)
 
     async def make_api_request(self, api_url: AbsoluteHttpURL) -> dict[str, Any]:
@@ -224,10 +211,7 @@ class OneDriveCrawler(Crawler):
             json={"appId": APP_UUID},
         )
         badger_token: str = json_resp["token"]
-        badger_token_expires: str = json_resp["expiryTimeUtc"]
         self.auth_headers = {"Prefer": "autoredeem", "Authorization": f"Badger {badger_token}"}
-        self.manager.cache_manager.save("onedrive_badger_token", badger_token)
-        self.manager.cache_manager.save("onedrive_badger_token_expires", badger_token_expires)
 
 
 def is_share_link(url: AbsoluteHttpURL) -> bool:
@@ -238,7 +222,7 @@ def is_folder(json_resp: dict[str, Any]) -> bool:
     return bool(json_resp.get("folder"))
 
 
-def parse_api_response(json_resp: dict, access_details: AccessDetails) -> dict[str, Any]:
+def parse_api_response(json_resp: dict[str, Any], access_details: AccessDetails) -> dict[str, Any]:
     web_url_str: str = json_resp["webUrl"]
     item_id = json_resp["id"]
     date_str = json_resp["fileSystemInfo"]["lastModifiedDateTime"]
@@ -249,7 +233,7 @@ def parse_api_response(json_resp: dict, access_details: AccessDetails) -> dict[s
         "url": create_api_url(new_access_details),
         "web_url": AbsoluteHttpURL(web_url_str, encoded="%" in web_url_str),
         "name": json_resp["name"],
-        "date": to_timestamp(datetime.fromisoformat(date_str)),
+        "date": dates.parse_iso(date_str).timestamp(),
         "access_details": new_access_details,
     }
 

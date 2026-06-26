@@ -1,119 +1,187 @@
 DOMAIN = "bunkr"
 TEST_CASES = [
-    (
-        "https://bunkr.pk/f/k3B4hDIRexYfV",
-        [
+    {
+        "url": "https://bunkr.black/v/bla4XTB1v8aG6",
+        "results": [
             {
-                "url": "re:Stepmom.+Best.Friend.mp4",
-                "filename": "Katalina Kyle, Savanah Storm - “What If She Hears Us!” Caught Fucking My Stepmom’s Best Friend.mp4",  # noqa: RUF001
-                "original_filename": "Katalina Kyle, Savanah Storm - “What If She Hears Us!?” Caught Fucking My Stepmom’s Best Friend.mp4",  # noqa: RUF001
-                "referer": "https://bunkr.site/f/k3B4hDIRexYfV",
-                "datetime": None,
+                "url": "re:/storage/media/AZ-Haul-119-tqLy8ZWy.mp4",
+                "filename": "AZ Haul 119.mp4",
+                "original_filename": "AZ Haul 119.mp4",
+                "referer": "https://bunkr.cr/f/bla4XTB1v8aG6",
             }
         ],
-    ),
-    (
-        # paginated
-        "https://bunkr.cr/a/5aZU25Cb",
-        [
+        "count": 1,
+    },
+    {
+        "url": "https://cdn3.bunkr.ru/xteleela-Onlyfans-Pics-qB1XyDRi.zip",
+        "results": [
             {
-                "url": "https://mlk-bk.cdn.gigachad-cdn.ru/01101506-9a96-4379-a226-c27f128923f6.jpg?n=xl_g_elin_maddie150.jpg",
-                "filename": "xl_g_elin_maddie150.jpg",
-                "original_filename": "xl_g_elin_maddie150.jpg",
-                "referer": "https://bunkr.site/f/1EhT44cSv6Dlq",
-                "download_folder": r"re:abbywinters - Elin & Maddie \(Girl - Girl Extra Large\)",
-                "album_id": "5aZU25Cb",
-                "datetime": 1755391253,
+                "url": "ANY",
+                "filename": "xteleela Onlyfans Pics.zip",
+                "referer": "https://bunkr.cr/f/xteleela-Onlyfans-Pics-qB1XyDRi.zip",
+                "download_folder": "re:Loose Files (Bunkr)",
             }
         ],
-        257,
-    ),
-    (
-        "https://bunkr.cr/a/TQAgjP8m",
-        [
+        "count": 1,
+    },
+    {
+        "url": "https://bunkr.ax/v/rFicV4QnhSHBE",
+        "results": [
             {
-                "url": "re:2020-01-09---Fake-Porn-Star-Orders-Pizza-NAKED-Prank----6dh068JH.mp4",
-                "original_filename": "2020-01-09 - Fake Porn Star Orders Pizza NAKED Prank 🍕.mp4",
-                "filename": "2020-01-09 - Fake Porn Star Orders Pizza NAKED Prank 🍕.mp4",
-                "referer": "https://bunkr.site/f/UAvbs2GPhWOGc",
-                "download_folder": r"re:NerdballerTV - Videos \(2018-2023\) \[Complete\]",
-                "album_id": "TQAgjP8m",
-                "datetime": 1709776012,
-            }
-        ],
-        220,
-    ),
-    (
-        # .org domain redirect to a different domain and discards query params
-        # This test is to make sure CDL does not get stuck in an infinite loop while doing album pagination
-        "https://bunkrrr.org/a/n12rHpzB",
-        [],
-        141,
-    ),
-    (
-        "https://bunkr.ax/v/rFicV4QnhSHBE",
-        [
-            {
-                "url": r"re:1df93418-5063-4e1b-851e-9470cb8fc5c6\.mp4",
+                "url": "re:1df93418-5063-4e1b-851e-9470cb8fc5c6\\.mp4",
                 "filename": "MysteriousProd.24.09.06.April.Olsen.Rebel.Rhyder.All.About.Fucking.720p.mp4",
-                "referer": "https://bunkr.site/f/rFicV4QnhSHBE",
+                "referer": "https://bunkr.cr/f/rFicV4QnhSHBE",
                 "album_id": None,
-                "datetime": None,
+                "uploaded_at": None,
             }
         ],
-    ),
-    (
-        "https://get.bunkrr.su/file/41348624",
-        [
+    },
+    {
+        "url": "https://get.bunkrr.su/file/41348624",
+        "results": [
             {
-                "url": r"re:1df93418-5063-4e1b-851e-9470cb8fc5c6\.mp4",
+                "url": "re:1df93418-5063-4e1b-851e-9470cb8fc5c6\\.mp4",
                 "filename": "MysteriousProd.24.09.06.April.Olsen.Rebel.Rhyder.All.About.Fucking.720p.mp4",
-                "referer": "https://get.bunkrr.su/file/41348624",
+                "referer": "https://dl.bunkr.cr/file/41348624",
                 "album_id": None,
-                "datetime": None,
+                "uploaded_at": None,
             }
         ],
-    ),
-    (
-        "https://cdn9.bunkr.ru/24578-hd-kEMMY0JH.mp4",
-        [
+    },
+    {
+        "url": "https://dl.bunkr.cr/file/41348624",
+        "results": [
             {
-                "url": r"re:24578-hd-kEMMY0JH.mp4",
+                "url": "re:1df93418-5063-4e1b-851e-9470cb8fc5c6\\.mp4",
+                "filename": "MysteriousProd.24.09.06.April.Olsen.Rebel.Rhyder.All.About.Fucking.720p.mp4",
+                "referer": "https://dl.bunkr.cr/file/41348624",
+            }
+        ],
+    },
+    {
+        "url": "https://cdn9.bunkr.ru/24578-hd-kEMMY0JH.mp4",
+        "results": [
+            {
+                "url": "re:24578-hd-kEMMY0JH.mp4",
                 "filename": "24578-hd.mp4",
-                "referer": "https://bunkr.site/f/24578-hd-kEMMY0JH.mp4",
+                "referer": "https://bunkr.cr/f/24578-hd-kEMMY0JH.mp4",
             }
         ],
-    ),
-    (
-        "https://bunkr.sk/f/summertimejames-pics--VocHZQ0K.rar",
-        [
+    },
+    {
+        "url": "https://bunkr.sk/f/summertimejames-pics--VocHZQ0K.rar",
+        "results": [
             {
-                "url": "re:/summertimejames-pics--VocHZQ0K.rar?n=summertimejames(pics).rar",
+                "url": "re:/summertimejames-pics--VocHZQ0K.rar?",
                 "filename": "summertimejames(pics).rar",
-                "referer": "https://bunkr.site/f/summertimejames-pics--VocHZQ0K.rar",
+                "referer": "https://bunkr.cr/f/summertimejames-pics--VocHZQ0K.rar",
             }
         ],
-    ),
-    (
-        "https://kebab.bunkr.ru/summertimejames-pics--VocHZQ0K.rar",
-        [
+    },
+    {
+        "url": "https://bunkr.cr/a/bFfln2uj",
+        "results": [
             {
-                "url": "re:/summertimejames-pics--VocHZQ0K.rar?n=summertimejames-pics--VocHZQ0K.rar",
-                "filename": "summertimejames-pics--VocHZQ0K.rar",
-                "referer": "https://get.bunkrr.su",
-            }
-        ],
-    ),
-    (
-        "https://burger.bunkr.ru/9861917.mp4-PTaiPNai-CaBcktkP.mp4",
-        [
+                "url": "re:/Laura-Perea-en-modo-Perra-l0dNCH9E.mp4",
+                "filename": "Laura Perea en modo Perra.mp4",
+                "debrid_link": None,
+                "original_filename": "Laura Perea en modo Perra.mp4",
+                "referer": "https://bunkr.cr/f/Laura-Perea-en-modo-Perra-l0dNCH9E.mp4",
+                "album_id": "bFfln2uj",
+                "uploaded_at": 1670173480,
+                "download_folder": "re:Nicol Loveee Laura Perea (Bunkr)",
+            },
             {
-                "url": "re:/9861917.mp4-PTaiPNai-CaBcktkP.mp4?n=9861917.mp4-PTaiPNai-CaBcktkP.mp4",
-                "filename": "9861917.mp4-PTaiPNai-CaBcktkP.mp4",
-                "referer": "https://get.bunkrr.su",
+                "url": "re:/Laura-Perea-en-la-habitaciA%CC%83%C2%B3n-5XMNsggv.mp4",
+                "filename": "Laura Perea en la habitaciÃ³n.mp4",
+            },
+            {
+                "url": "re:/Laura-Perea-Desnuda-bailando-CoucD4Q3.mp4",
+                "filename": "Laura Perea Desnuda bailando.mp4",
+            },
+            {
+                "url": "re:/Laura-Perea-en-el-BaA%CC%83%C2%B1o-QPKeEVzQ.mp4?",
+                "filename": "Laura Perea en el BaÃ±o.mp4",
+            },
+            {
+                "url": "re:/Laura-Perea-movimeintos-Eroticos-uJCgmC0C.mp4",
+                "filename": "Laura Perea movimeintos Eroticos.mp4",
+            },
+        ],
+        "count": 5,
+    },
+    {
+        "url": "https://bunkr.cr/a/A3k5ktj4",
+        "results": [
+            {
+                "url": "re:/storage/media/",
+                "debrid_link": None,
+                "referer": "re:https://bunkr.cr/f/",
+                "album_id": "A3k5ktj4",
+                "uploaded_at": int,
+                "download_folder": "re:Nicol Loveee (Bunkr)",
+            },
+        ],
+        "count": 11,
+    },
+    {
+        "url": "https://bunkr.cr/a/5aZU25Cb",
+        "description": "paginated",
+        "results": [
+            {
+                "url": "ANY",
+                "download_folder": "re:abbywinters - Elin & Maddie (Girl - Girl Extra Large)",
+                "album_id": "5aZU25Cb",
             }
         ],
-    ),
-    ("https://bunkr.ws/a/z5Xt6NqH", [], 3),
-    ("https://bunkr.ws/a/aJHkJf3L", [], 172),
+        "count": 257,
+    },
+    {
+        "url": "https://bunkr.cr/a/TQAgjP8m",
+        "description": "weird unicode in file names",
+        "results": [
+            {
+                "url": "ANY",
+                "download_folder": "re:NerdballerTV - Videos (2018-2023) [Complete]",
+                "album_id": "TQAgjP8m",
+                "uploaded_at": int,
+            }
+        ],
+        "count": 220,
+    },
+    {
+        "url": "https://bunkrrr.org/a/n12rHpzB",
+        "description": """
+        .org domain redirect to a different domain and discards query params.
+        This test is to make sure CDL does not get stuck in an infinite loop while doing album pagination""",
+        "results": [],
+        "count": 141,
+    },
+    {
+        "url": "https://bunkr.ws/a/z5Xt6NqH",
+        "results": [
+            {
+                "url": "re:/acba241d-c1e8-40c3-aa73-94daf75fcd13.jpg",
+                "filename": ".jpg",
+                "debrid_link": None,
+                "original_filename": "'\"'.jpg",
+                "referer": "https://bunkr.cr/f/Nzt1ID7lsgwR4",
+                "album_id": "z5Xt6NqH",
+                "uploaded_at": 1756986657,
+                "download_folder": "re:filename (Bunkr)",
+            },
+            {
+                "url": "re:/e997f757-61dc-45be-bd61-b6998d813beb.jpg",
+                "filename": "😃.jpg",
+                "original_filename": "😃.jpg",
+            },
+            {
+                "url": "re:/72f1e20b-72a5-43b0-8ab2-472016e1d767.mp4",
+                "filename": "filename !#$%&()+,-.0123456789;=@ABCDEFGHIJKLMNOPQRSTUVWXYZ[].mp4",
+                "original_filename": "filename: !\"#$%&'()*+,-.0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\].mp4",
+            },
+        ],
+        "count": 3,
+    },
+    {"url": "https://bunkr.ws/a/aJHkJf3L", "results": [], "count": 172},
 ]

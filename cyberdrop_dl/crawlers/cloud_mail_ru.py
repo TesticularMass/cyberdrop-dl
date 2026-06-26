@@ -3,11 +3,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 class CloudMailRuCrawler(Crawler):
@@ -25,7 +25,7 @@ class CloudMailRuCrawler(Crawler):
             case _:
                 raise ValueError
 
-    async def async_startup(self) -> None:
+    async def __async_post_init__(self) -> None:
         await self._get_dispacher_server(self.PRIMARY_URL)
 
     @classmethod
@@ -55,8 +55,8 @@ class CloudMailRuCrawler(Crawler):
     async def public(self, scrape_item: ScrapeItem, path: str) -> None:
         node = await self._request_info(path)
         if node["type"] == "file":
-            if await self.check_complete_from_referer(scrape_item):
-                return
+            if await self.check_complete_from_referer(scrape_item.url):
+                return None
 
             return await self._file(scrape_item, node)
 
@@ -88,11 +88,11 @@ class CloudMailRuCrawler(Crawler):
     @error_handling_wrapper
     async def _file(self, scrape_item: ScrapeItem, file: dict[str, Any]) -> None:
         for part in file["weblink"].split("/")[2:-1]:
-            scrape_item.add_to_parent_title(part)
+            scrape_item.append_folders(part)
 
         dl_link = self.dispatcher_server / file["weblink"]
         filename, ext = self.get_filename_and_ext(file["name"])
-        scrape_item.possible_datetime = file["mtime"]
+        scrape_item.uploaded_at = file["mtime"]
         await self.handle_file(
             scrape_item.url, scrape_item, file["name"], ext, debrid_link=dl_link, custom_filename=filename
         )

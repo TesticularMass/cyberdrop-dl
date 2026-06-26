@@ -3,12 +3,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths, auto_task_id
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.utils import css, open_graph
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 class Selector:
@@ -55,9 +55,9 @@ class FSIBlogCrawler(Crawler):
     @error_handling_wrapper
     async def post(self, scrape_item: ScrapeItem) -> None:
         soup = await self.request_soup(scrape_item.url)
-        meta: dict[str, str] = css.get_json_ld(soup)["@graph"][0]
+        meta: dict[str, str] = css.json_ld(soup)["@graph"][0]
         name = meta["name"].rpartition("-")[0]
-        scrape_item.possible_datetime = date = self.parse_iso_date(meta["datePublished"])
+        scrape_item.uploaded_at = date = self.parse_iso_date(meta["datePublished"])
         title = self.create_separate_post_title(name, None, date)
         scrape_item.setup_as_album(self.create_title(title))
 
@@ -65,7 +65,7 @@ class FSIBlogCrawler(Crawler):
             link = self.parse_url(video)
             self.create_task(self.direct_file(scrape_item, link))
 
-        for _, image in self.iter_tags(soup, Selector.IMAGES):
+        for image in self.iter_urls(soup, Selector.IMAGES):
             self.create_task(self.direct_file(scrape_item, image))
 
     @error_handling_wrapper
@@ -73,7 +73,7 @@ class FSIBlogCrawler(Crawler):
         title = self.create_title(query)
         scrape_item.setup_as_album(title)
         async for soup in self.web_pager(scrape_item.url):
-            for _, new_scrape_item in self.iter_children(scrape_item, soup, Selector.ARTICLE):
+            for new_scrape_item in self.iter_children(scrape_item, soup, Selector.ARTICLE):
                 self.create_task(self._post_task(new_scrape_item))
 
     _post_task = auto_task_id(post)

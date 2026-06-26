@@ -7,13 +7,14 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from cyberdrop_dl.__main__ import main as run_cdl
-from cyberdrop_dl.crawlers.crawler import SKIP_DOWNLOAD
+from cyberdrop_dl.__main__ import run_cdl
+from cyberdrop_dl.config.appdata import AppData, AppDirs
+from cyberdrop_dl.crawlers import SKIP_DOWNLOAD
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-KEYS = ("url", "filename", "debrid_link", "original_filename", "referer", "album_id", "uploaded_at", "download_folder")
+KEYS = ("url", "filename", "debrid_url", "original_filename", "referer", "album_id", "uploaded_at", "download_folder")
 ROOT = Path(__file__).resolve().parents[2]
 TEST_FOLDER = ROOT / "tests/crawlers/test_cases"
 
@@ -21,8 +22,8 @@ TestCase = dict[str, Any]
 
 
 def parse_jsonl(file: Path) -> Generator[tuple[str, str, TestCase]]:
-    base = Path.cwd() / "Downloads"
-    for line in file.read_text().splitlines():
+    base = Path.cwd() / "downloads"
+    for line in file.read_text(encoding="utf-8").splitlines():
         media = json.loads(line)
         url = media["parents"][0] if media["parents"] else media["referer"]
         media["download_folder"] = "re:" + str(Path(media["download_folder"]).relative_to(base))
@@ -31,15 +32,20 @@ def parse_jsonl(file: Path) -> Generator[tuple[str, str, TestCase]]:
 
 def run(url_txt: Path, main_log: Path) -> None:
     with tempfile.TemporaryDirectory() as temp:
+        appdata = AppData.from_dirs(AppDirs.from_path(Path(temp) / "test_appdata"))
+        appdata.config_file.parent.mkdir(parents=True, exist_ok=True)
+        appdata.config_file.touch()
         _ = SKIP_DOWNLOAD.set(True)
         _ = run_cdl(
             [
-                "--download",
-                "--appdata-folder",
-                temp,
+                "download",
+                "--database-file",
+                str(appdata.db_file),
+                "--config-file",
+                str(appdata.config_file),
                 "--input-file",
                 str(url_txt),
-                "--main-log",
+                "--log-file",
                 str(main_log),
                 "--dump-json",
                 "--ui",
@@ -59,7 +65,14 @@ def create_test_files(file: Path) -> None:
     test_files: list[Path] = []
     for domain, cases in all_results.items():
         domain = domain.replace(".", "_")
-        test_cases = [(url, results, len(results)) for url, results in cases.items()]
+        test_cases = [
+            {
+                "url": url,
+                "results": results,
+                "count": len(results),
+            }
+            for url, results in cases.items()
+        ]
         test_file = TEST_FOLDER / f"test_case_{domain}.py"
         _ = test_file.write_text(f"DOMAIN = {domain!r}\nTEST_CASES = {test_cases}")
         test_files.append(test_file)

@@ -22,7 +22,7 @@ _ALL = _make_selector("")
 
 
 class OpenGraphError(ScrapeError):
-    def __init__(self, property: str | int) -> None:
+    def __init__(self, property: str | int) -> None:  # noqa: A002
         super().__init__(422, f"Page have no {property} [og properties]")
 
 
@@ -71,7 +71,7 @@ def get(name: str, /, soup: bs4.BeautifulSoup) -> str | None:
 
 def _get_attr(meta: bs4.Tag, name: str) -> str:
     value = meta[name]
-    assert isinstance(value, str)
+    assert type(value) is str
     return value.strip()
 
 

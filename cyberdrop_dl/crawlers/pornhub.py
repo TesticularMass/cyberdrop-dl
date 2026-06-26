@@ -7,18 +7,18 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple, TypedDict
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.exceptions import ScrapeError
-from cyberdrop_dl.utils import css
-from cyberdrop_dl.utils.utilities import error_handling_wrapper, get_text_between
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.utils import css, extr_text
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
     from bs4 import BeautifulSoup
 
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 PRIMARY_URL = AbsoluteHttpURL("https://www.pornhub.com")
-MP4_NOT_AVAILABLE_SINCE = datetime.datetime(2025, 6, 25).timestamp()
+MP4_NOT_AVAILABLE_SINCE = datetime.datetime(2025, 6, 25, tzinfo=datetime.UTC).timestamp()
 TOKEN_SELECTOR = css.CssAttributeSelector("input#xsrfToken", "value")
 
 
@@ -52,7 +52,7 @@ class Profile:
         return Profile(type_, name, videos, gifs, photos)
 
 
-class Selectors:
+class Selector:
     ALBUM_FROM_PHOTO = "div#thumbSlider > h2 > a"
     ALBUM_TITLE = "h1[class*=photoAlbumTitle]"
     DATE = "script:-soup-contains('uploadDate')"
@@ -74,15 +74,12 @@ class Selectors:
     PROFILE_ALBUMS = "#moreData.photosAlbumsListing a"
 
 
-_SELECTORS = Selectors()
-
-
 class Media(TypedDict):
     height: int
     width: int
     format: Literal["hls", "mp4"]
     videoUrl: str
-    quality: str | list
+    quality: str | list[str]
 
 
 class Format(NamedTuple):
@@ -122,23 +119,23 @@ class PornHubCrawler(Crawler):
         ),
     }
     PRIMARY_URL: ClassVar[AbsoluteHttpURL] = PRIMARY_URL
-    NEXT_PAGE_SELECTOR: ClassVar[str] = _SELECTORS.NEXT_PAGE
+    NEXT_PAGE_SELECTOR: ClassVar[str] = Selector.NEXT_PAGE
     DOMAIN: ClassVar[str] = "pornhub"
     FOLDER_DOMAIN: ClassVar[str] = "PornHub"
 
     def __post_init__(self) -> None:
         self.seen_profiles: set[Profile] = set()
 
-    async def async_startup(self) -> None:
+    async def __async_post_init__(self) -> None:
         keys = ("age_verified", "accessPH", "accessAgeDisclaimerPH", "accessAgeDisclaimerUK", "expiredEnterModalShown")
         self.update_cookies(dict.fromkeys(keys, 1))
 
-    async def fetch(self, scrape_item: ScrapeItem) -> None:
+    async def fetch(self, scrape_item: ScrapeItem) -> None:  # noqa: PLR0911
         match scrape_item.url.parts[1:]:
             case ["user" | "channel" | "channels" | "model" | "pornstar" as type_, name, *rest]:
                 profile = Profile.new(type_, name, rest)
                 if profile in self.seen_profiles:
-                    return
+                    return None
                 self.seen_profiles.add(profile)
                 return await self.profile(scrape_item, profile)
             case ["album", album_id]:
@@ -163,26 +160,26 @@ class PornHubCrawler(Crawler):
         scrape_item.setup_as_profile(title)
 
         if profile.download_videos:
-            await self.iter_profile_pages(scrape_item, profile.url / "videos", _SELECTORS.PROFILE_VIDEOS)
+            await self.iter_profile_pages(scrape_item, profile.url / "videos", Selector.PROFILE_VIDEOS)
         if profile.download_gifs:
-            await self.iter_profile_pages(scrape_item, profile.url / "gifs/public", _SELECTORS.PROFILE_GIFS)
+            await self.iter_profile_pages(scrape_item, profile.url / "gifs/public", Selector.PROFILE_GIFS)
         if profile.download_photos:
-            await self.iter_profile_pages(scrape_item, profile.url / "photos/public", _SELECTORS.PROFILE_ALBUMS)
+            await self.iter_profile_pages(scrape_item, profile.url / "photos/public", Selector.PROFILE_ALBUMS)
 
     async def _get_profile_title(self, url: AbsoluteHttpURL) -> str:
         soup = await self.request_soup(url)
-        return css.select_text(soup, _SELECTORS.PROFILE_NAME, decompose="span")
+        return css.select_text(soup, Selector.PROFILE_NAME, decompose="span")
 
     @error_handling_wrapper
     async def iter_profile_pages(self, scrape_item: ScrapeItem, url: AbsoluteHttpURL, selector: str) -> None:
         async for soup in self.web_pager(url):
-            for _, new_scrape_item in self.iter_children(scrape_item, soup, selector):
+            for new_scrape_item in self.iter_children(scrape_item, soup, selector):
                 self.create_task(self.run(new_scrape_item))
 
     @error_handling_wrapper
     async def album(self, scrape_item: ScrapeItem, album_id: str) -> None:
         soup = await self.request_soup(scrape_item.url)
-        album_name = css.select_text(soup, _SELECTORS.ALBUM_TITLE)
+        album_name = css.select_text(soup, Selector.ALBUM_TITLE)
         scrape_item.setup_as_album(self.create_title(album_name, album_id), album_id=album_id)
 
         api_url = self.PRIMARY_URL / "api/v1/album" / album_id / "show_album_json"
@@ -198,16 +195,16 @@ class PornHubCrawler(Crawler):
 
     @error_handling_wrapper
     async def photo(self, scrape_item: ScrapeItem) -> None:
-        if await self.check_complete_from_referer(scrape_item):
+        if await self.check_complete_from_referer(scrape_item.url):
             return
 
         soup = await self.request_soup(scrape_item.url)
-        link_str: str = css.select(soup, _SELECTORS.PHOTO, "src")
+        link_str: str = css.select(soup, Selector.PHOTO, "src")
         link = self.parse_url(link_str)
-        album_tag = css.select(soup, _SELECTORS.ALBUM_FROM_PHOTO)
-        album_name = css.get_text(album_tag)
-        album_link_str: str = css.get_attr(album_tag, "href")
-        album_id: str = album_link_str.split("/")[-1]
+        album_tag = css.select(soup, Selector.ALBUM_FROM_PHOTO)
+        album_name = css.text(album_tag)
+        album_link_str: str = css.attr(album_tag, "href")
+        album_id: str = album_link_str.rsplit("/", maxsplit=1)[-1]
         title = self.create_title(album_name, album_id)
         scrape_item.setup_as_album(title, album_id=album_id)
         await self._process_photo(scrape_item, link)
@@ -216,8 +213,8 @@ class PornHubCrawler(Crawler):
     async def gif(self, scrape_item: ScrapeItem) -> None:
         soup = await self.request_soup(scrape_item.url)
         attributes = "data-mp4", "data-fallback", "data-webm"
-        gif_tag = css.select(soup, _SELECTORS.GIF)
-        link_str = next(value for attr in attributes if (value := css.get_attr_or_none(gif_tag, attr)))
+        gif_tag = css.select(soup, Selector.GIF)
+        link_str = next(value for attr in attributes if (value := css.attr_or_none(gif_tag, attr)))
         link = self.parse_url(link_str)
         await self._process_photo(scrape_item, link)
 
@@ -238,12 +235,11 @@ class PornHubCrawler(Crawler):
 
     @error_handling_wrapper
     async def playlist(self, scrape_item: ScrapeItem, playlist_id: str) -> None:
-        results = await self.get_album_results(playlist_id)
         soup = await self.request_soup(scrape_item.url)
-        title: str = css.select_text(soup, _SELECTORS.PLAYLIST_TITLE)
+        title: str = css.select_text(soup, Selector.PLAYLIST_TITLE)
         title = self.create_title(title, playlist_id)
         scrape_item.setup_as_album(f"{title} [playlist]", album_id=playlist_id)
-        for _, new_scrape_item in self.iter_children(scrape_item, soup, _SELECTORS.PLAYLIST_VIDEOS, results=results):
+        for new_scrape_item in self.iter_children(scrape_item, soup, Selector.PLAYLIST_VIDEOS):
             self.create_task(self.run(new_scrape_item))
 
     @error_handling_wrapper
@@ -254,28 +250,26 @@ class PornHubCrawler(Crawler):
         if await self.check_complete_from_referer(page_url):
             return
 
-        soup = await self.request_soup(page_url, cache_disabled=True)
+        soup = await self.request_soup(page_url)
         _check_video_is_available(soup)
-        title = css.select_text(soup, _SELECTORS.TITLE)
+        title = css.select_text(soup, Selector.TITLE)
         formats = [Format.new(media) for media in get_media_list(soup)]
         best_hls = max(f for f in formats if f.format == "hls")
         debrid_link = m3u8 = best_format = None
-        scrape_item.possible_datetime = date = self.parse_iso_date(get_upload_date_str(soup))
+        scrape_item.uploaded_at = date = self.parse_iso_date(get_upload_date_str(soup))
         assert date
         use_hls = date >= MP4_NOT_AVAILABLE_SINCE
 
         if not use_hls:
             best_format = await self.get_best_mp4_format(formats)
             if best_format is None:
-                self.log(
-                    f"[{self.FOLDER_DOMAIN}] Video {video_id} has no mp4 formats available. Falling back to HLS", 30
-                )
+                self.log.warning(f"Video {video_id} has no mp4 formats available. Falling back to HLS")
 
             else:
                 debrid_link = self.parse_url(best_format.url)
 
         if use_hls or best_format is None:
-            m3u8, _ = await self.get_m3u8_from_playlist_url(self.parse_url(best_hls.url))
+            m3u8, _ = await self.request_m3u8_playlist(self.parse_url(best_hls.url))
             best_format = best_hls
 
         scrape_item.url = page_url
@@ -298,27 +292,27 @@ class PornHubCrawler(Crawler):
 
         mp4_media_url = self.parse_url(mp4_format.url)
         # This returns an empty list when downloading multiple videos concurrently
-        mp4_media: list[Media] = await self.request_json(mp4_media_url, cache_disabled=True)
+        mp4_media: list[Media] = await self.request_json(mp4_media_url)
         return max((Format.new(media) for media in mp4_media), default=None)
 
 
 def get_upload_date_str(soup: BeautifulSoup) -> str:
-    date_text = css.select_text(soup, _SELECTORS.DATE)
-    return get_text_between(date_text, 'uploadDate": "', '",')
+    date_text = css.select_text(soup, Selector.DATE)
+    return extr_text(date_text, 'uploadDate": "', '",')
 
 
 def get_media_list(soup: BeautifulSoup) -> list[Media]:
-    flashvars: str = css.select(soup, _SELECTORS.JS_VIDEO_INFO).text
-    media_text = get_text_between(flashvars, '"mediaDefinitions":', '"isVertical"').strip().removesuffix(",")
+    flashvars: str = css.select(soup, Selector.JS_VIDEO_INFO).text
+    media_text = extr_text(flashvars, '"mediaDefinitions":', '"isVertical"').strip().removesuffix(",")
     return json.loads(media_text)
 
 
 def _check_video_is_available(soup: BeautifulSoup) -> None:
-    if soup.select_one(_SELECTORS.NO_VIDEO):
+    if soup.select_one(Selector.NO_VIDEO):
         raise ScrapeError(HTTPStatus.NOT_FOUND)
 
     page_text = soup.text
-    if soup.select_one(_SELECTORS.GEO_BLOCKED) or "This content is unavailable in your country" in page_text:
+    if soup.select_one(Selector.GEO_BLOCKED) or "This content is unavailable in your country" in page_text:
         raise ScrapeError(HTTPStatus.FORBIDDEN, "Video is geo restricted")
 
     if (
@@ -328,7 +322,7 @@ def _check_video_is_available(soup: BeautifulSoup) -> None:
         raise ScrapeError(HTTPStatus.UNAVAILABLE_FOR_LEGAL_REASONS)
 
     if (
-        soup.select_one(_SELECTORS.REMOVED)
+        soup.select_one(Selector.REMOVED)
         or "This video has been removed" in page_text
         or "This video is currently unavailable" in page_text
     ):

@@ -36,13 +36,13 @@ import asyncio
 from typing import TYPE_CHECKING, ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedDomains, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.exceptions import ScrapeError
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.utils import css
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 # This versions numbers and restrictions are not documented and may actually be wrong
@@ -99,21 +99,18 @@ class GoogleDriveCrawler(Crawler):
         if file_id := url.query.get("id"):
             return await self.file(scrape_item, file_id)
 
-        def next_to(name: str):
+        def next_to(name: str) -> str | None:
             try:
                 index = url.parts.index(name)
                 return url.parts[index + 1]
             except (ValueError, IndexError):
-                return
+                return None
 
         if folder_id := (next_to("folders") or next_to("embeddedfolderview")):
             return await self.folder(scrape_item, folder_id)
 
         if file_id := next_to("d"):
-            if (first := url.parts[1]) in _DOC_FORMATS:
-                doc = first
-            else:
-                doc = None
+            doc = first if (first := url.parts[1]) in _DOC_FORMATS else None
             return await self.file(scrape_item, file_id, doc)
 
         raise ValueError
@@ -127,23 +124,24 @@ class GoogleDriveCrawler(Crawler):
         title = self.create_title(folder_name, folder_id)
         scrape_item.setup_as_album(title, album_id=folder_id)
 
-        for index, (_, child) in enumerate(self.iter_tags(soup, _FOLDER_ITEM_SELECTOR), 1):
+        for index, child in enumerate(self.iter_urls(soup, _FOLDER_ITEM_SELECTOR), 1):
             new_scrape_item = scrape_item.create_child(child)
             self.create_task(self.run(new_scrape_item))
             scrape_item.add_children()
             if index % 200 == 0:
                 await asyncio.sleep(0)
 
+    @error_handling_wrapper
     async def file(self, scrape_item: ScrapeItem, file_id: str = "", doc: str | None = None) -> None:
         version = int(file_id[0])
         if version not in _KNOWN_FILE_ID_VERSIONS:
             msg = f"{scrape_item.url} has an unknown file_id {version = }. Falling back to download as normal file"
-            self.log(msg, 30)
+            self.log.warning(msg)
             return await self._drive_file(scrape_item, file_id)
 
         if len(file_id) < _DRIVE_ID_LEN:
             msg = f"{scrape_item.url} has an invalid file_id. Needs to be at least {_DRIVE_ID_LEN} long"
-            self.log(msg, 40)
+            self.log.error(msg)
             raise ValueError
 
         if len(file_id) < _DOCS_ID_LEN:
@@ -171,7 +169,7 @@ class GoogleDriveCrawler(Crawler):
         proper_format = _get_proper_doc_format(doc, format_)
         if format_ and format_ != proper_format:
             msg = f"{scrape_item.url} with {format_ = } is not valid. Falling back to {proper_format}"
-            self.log(msg, 30)
+            self.log.warning(msg)
 
         scrape_item.url = (_DOCS_URL / doc / "d" / file_id).with_query(format=proper_format)
         export_url = (_DOCS_URL / doc / "export").with_query(id=file_id, format=proper_format)
@@ -179,7 +177,7 @@ class GoogleDriveCrawler(Crawler):
 
     @error_handling_wrapper
     async def _file(self, scrape_item: ScrapeItem, export_url: AbsoluteHttpURL) -> None:
-        if await self.check_complete_from_referer(scrape_item):
+        if await self.check_complete_from_referer(scrape_item.url):
             return
 
         link, name = await self._get_file_info(export_url)
@@ -191,14 +189,12 @@ class GoogleDriveCrawler(Crawler):
         method = "GET" if export_url.host == _DOCS_URL.host else "POST"
 
         async with self.request(export_url, method=method) as resp:
-            assert resp.ok and "html" not in resp.content_type
+            assert resp.ok
+            assert "html" not in resp.content_type
 
-        return resp.url, resp.filename
+        return resp.url, resp.content_disposition.filename
 
 
-def _get_proper_doc_format(doc: str, format: str | None) -> str:
+def _get_proper_doc_format(doc: str, fmt: str | None) -> str:
     valid_formats = _DOC_FORMATS[doc]
-    if format in valid_formats:
-        return format
-
-    return valid_formats[0]
+    return fmt if fmt in valid_formats else valid_formats[0]

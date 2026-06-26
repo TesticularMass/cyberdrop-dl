@@ -5,13 +5,15 @@ import re
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.mediaprops import Subtitle
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.exceptions import ScrapeError
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.mediaprops import Subtitle
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from collections.abc import Generator
+
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 _PRIMARY_URL = AbsoluteHttpURL("https://megacloud.blog")
@@ -40,6 +42,9 @@ class MegaCloudCrawler(Crawler):
     PRIMARY_URL: ClassVar[AbsoluteHttpURL] = _PRIMARY_URL
     DOMAIN: ClassVar[str] = "megacloud"
 
+    def _prepare_headers(self, scrape_item: ScrapeItem) -> dict[str, str]:
+        return super()._prepare_headers(scrape_item) | {"Referer": "https://megacloud.blog/"}
+
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         match scrape_item.url.parts[1:]:
             case ["embed-2", "v3", _, _]:
@@ -59,7 +64,7 @@ class MegaCloudCrawler(Crawler):
 
     async def _handle_video(self: Crawler, scrape_item: ScrapeItem, video: MegaCloudVideo) -> None:
         m3u8_url = video.sources[0]
-        m3u8, info = await self.get_m3u8_from_playlist_url(m3u8_url, headers=_HEADERS)
+        m3u8, info = await self.request_m3u8_playlist(m3u8_url, headers=_HEADERS)
         filename, ext = self.get_filename_and_ext(video.id + ".mp4")
         video_name = self.create_custom_filename(
             video.title or video.id, ext, file_id=video.id, resolution=info.resolution
@@ -95,7 +100,7 @@ class MegaCloudCrawler(Crawler):
             # TODO: Add logic to handle encrypted videos
             raise ScrapeError(403, "Video is encrypted")
 
-        def parse_subs():
+        def parse_subs() -> Generator[Subtitle]:
             for track in resp["tracks"]:
                 if track["kind"] != "captions":
                     continue
@@ -131,8 +136,8 @@ _ISO639_MAP = {
 
 
 def _parse_lang_code(name: str, label: str) -> str:
-    code = name.rsplit("-")[0]
-    if len(code) in (2, 3):
+    code = name.split("-", maxsplit=1)[0]
+    if len(code) in {2, 3}:
         return code
 
     label = label.casefold()

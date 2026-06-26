@@ -1,108 +1,226 @@
 from __future__ import annotations
 
-import contextlib
+import asyncio
+import logging
 import sqlite3
-import time
-from datetime import datetime
+import sys
 from pathlib import Path
-from shutil import copy2
+from typing import LiteralString
 
-from rich.console import Console
+from cyberdrop_dl import database
+from cyberdrop_dl.database import common
+from cyberdrop_dl.database.history import apply_fixes
+from cyberdrop_dl.database.schema import CURRENT_VERSION, Version
+from cyberdrop_dl.filepath import sanitize_filename
+from cyberdrop_dl.logs import setup_console_logging
+from cyberdrop_dl.utils import dates
 
-from .tables.definitions import create_files, create_temp_hash
-
-console = Console()
-
-
-def transfer_v5_db_to_v6(db_path: Path) -> None:
-    """Transfers data from the old 'hash' table to new 'files' and 'temp_hash' tables, handling potential schema differences and errors.
-
-    Args:
-        self: The instance of the class containing this method.
-
-    Raises:
-        Exception: If a critical error
-    """
-    if not db_path.is_file():
-        return
-    with db_transfer_context(db_path) as cursor:
-        # Check if the 'hash' table exists
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='hash'")
-        hash_table_exists = cursor.fetchone() is not None
-
-        if not hash_table_exists:
-            console.print("[bold yellow]Old 'hash' table not found. Skipping transfer.[/]")
-            return
-
-        # Check if the 'hash_type' column exists in the 'hash' table
-        cursor.execute("SELECT COUNT(*) FROM pragma_table_info('hash') WHERE name='hash_type'")
-        has_hash_type_column = (cursor.fetchone())[0] > 0
-        if has_hash_type_column:
-            return
-        db_backup(db_path)
-
-        # Fetch data from the old 'hash' table
-        cursor.execute("""
-        SELECT folder, download_filename, file_size, hash, original_filename, referer
-            FROM hash
-        """)
-        old_hash_data = cursor.fetchall()
-        # Drop existing 'files' and 'temp_hash' tables if they exist
-        cursor.execute("DROP TABLE IF EXISTS files")
-        cursor.execute("DROP TABLE IF EXISTS temp_hash")
-
-        # Create the 'temp_hash' table with the required schema
-        cursor.execute(create_temp_hash)
-        cursor.execute(create_files)
-
-        # Prepare data for insertion into 'files' and 'temp_hash' tables
-        data_to_insert_files = []
-        data_to_insert_hash = []
-        for row in old_hash_data:
-            folder, download_filename, file_size, hash, original_filename, referer = row
-
-            file_path = Path(folder, download_filename)
-            try:
-                file_date = int(file_path.stat().st_mtime)
-            except (OSError, ValueError):
-                file_date = int(time.time())
-
-            data_to_insert_files.append((folder, download_filename, original_filename, file_size, referer, file_date))
-            data_to_insert_hash.append((folder, download_filename, "md5", hash))
-
-        # Insert data into 'files' and 'temp_hash' tables
-        cursor.executemany(
-            "INSERT OR IGNORE INTO files (folder, download_filename, original_filename, file_size, referer, date) VALUES (?, ?, ?, ?, ?, ?);",
-            data_to_insert_files,
-        )
-
-        cursor.executemany(
-            "INSERT OR IGNORE INTO temp_hash (folder, download_filename, hash_type, hash) VALUES (?, ?, ?, ?);",
-            data_to_insert_hash,
-        )
-
-        # Drop the old 'hash' table
-        cursor.execute("DROP TABLE hash")
-
-        # Rename the 'temp_hash' table to 'hash'
-        cursor.execute("ALTER TABLE temp_hash RENAME TO hash")
+logger = logging.getLogger(__name__)
 
 
-def db_backup(db_file: Path) -> None:
-    new_file = Path(db_file.parent, f"cyberdrop_v5_{datetime.now().strftime('%Y%m%d_%H%M%S')}.bak.db")
-    copy2(db_file, new_file)
+def _get_table_names(conn: sqlite3.Connection, schema: LiteralString = "main") -> set[str]:
+    cursor = conn.execute(f"SELECT name FROM {schema}.sqlite_master WHERE type='table'")  # noqa: S608
+    return {r[0] for r in cursor.fetchall()}
 
 
-@contextlib.contextmanager
-def db_transfer_context(db_file):
-    conn = sqlite3.connect(db_file)
-    cursor = conn.cursor()
+def _get_column_names(conn: sqlite3.Connection, table: str, schema: str = "main") -> set[str]:
+    rows = conn.execute(f"PRAGMA {schema}.table_info({table})").fetchall()
+    return {r[1] for r in rows}
+
+
+def _get_column_info(conn: sqlite3.Connection, table: str, schema: str = "main") -> list[tuple[str, str | None]]:
+    """Return `[(col_name, default_value), ...]` for every column in *table*.
+
+    *default_value* is the literal SQL default from the schema, or `None` when no default is declared."""
+
+    # PRAGMA table_info columns: cid | name | type | notnull | dflt_value | pk
+    rows = conn.execute(f"PRAGMA {schema}.table_info({table})").fetchall()
+    return [(r[1], r[4]) for r in rows]
+
+
+def _get_applied_versions(conn: sqlite3.Connection) -> list[str]:
     try:
-        yield cursor
-        conn.commit()  # commit changes if no exception occurs
-    except Exception as e:
-        conn.rollback()
-        raise e
-    finally:
-        cursor.close()
-        conn.close()
+        rows = conn.execute("SELECT version FROM schema_version").fetchall()
+        return [r[0] for r in rows]
+    except sqlite3.OperationalError:
+        return []
+
+
+def detect_version(conn: sqlite3.Connection) -> Version | None:
+    tables = _get_table_names(conn)
+
+    if "schema_version" in tables:
+        versions = _get_applied_versions(conn)
+        if versions:
+            return Version.parse(sorted(versions)[-1])
+
+    if tables == {"media", "downloads_temp", "coomeno"}:
+        return Version(4, 2, 231)
+
+    if tables == {"media", "temp"}:
+        return Version(5, 3, 31)
+
+    if tables == {"media", "files", "hash"}:
+        media_cols = _get_column_names(conn, "media")
+        if "duration" in media_cols:
+            return Version(6, 10, 1)  # v6.10.1 - v7.5.0
+        return Version(6, 5, 0)
+
+    return None
+
+
+def _transfer_table(new_conn: sqlite3.Connection, table: str) -> None:
+    """Transfer rows from `old.<table>` into the new `<table>`.
+
+    The SELECT list is built dynamically:
+    - columns that exist in the old table are selected by name;
+    - columns that are only in the current schema are filled with their declared schema default or `NULL`."""
+
+    old_tables = _get_table_names(new_conn, schema="old")
+    if table not in old_tables:
+        logger.debug("_transfer_table: %s absent in old DB, skipping", table)
+        return
+
+    old_cols = _get_column_names(new_conn, table, schema="old")
+    new_col_info = _get_column_info(new_conn, table, schema="main")
+
+    col_names: list[str] = []
+    select_exprs: list[str] = []
+
+    for name, default in new_col_info:
+        col_names.append(f'"{name}"')
+        if name in old_cols:
+            select_exprs.append(f'"{name}"')
+        else:
+            # Use the declared default value, or NULL when none is specified.
+            fallback = default if default is not None else "NULL"
+            select_exprs.append(f'{fallback} AS "{name}"')
+
+    cols_sql = ", ".join(col_names)
+    select_sql = ", ".join(select_exprs)
+
+    logger.info("_transfer_table: old.%s -> %s", table, table)
+    new_conn.execute(f'INSERT OR IGNORE INTO "{table}" ({cols_sql}) SELECT {select_sql} FROM old."{table}"')  # noqa: S608
+
+
+def _transfer_media_to_files(new_conn: sqlite3.Connection) -> None:
+    """Populate the new `files` table from `old.media`."""
+
+    old_tables = _get_table_names(new_conn, schema="old")
+    if "media" not in old_tables:
+        logger.debug("_transfer_media_to_files: no old media table, skipping")
+        return
+
+    old_media_cols = _get_column_names(new_conn, "media", schema="old")
+    file_size_expr = '"file_size"' if "file_size" in old_media_cols else "NULL"
+
+    logger.info("_transfer_media_to_files: old.media -> files")
+    # download_path is not absolute in older versions, but we can still use it to populate the folder column.
+    new_conn.execute(
+        f"""
+        INSERT OR IGNORE INTO "files"
+            ("folder", "download_filename", "original_filename", "file_size", "referer", "date")
+        SELECT
+            "download_path",
+            "download_filename",
+            "original_filename",
+            {file_size_expr},
+            "referer",
+            CAST(strftime('%s', "created_at") AS INTEGER)
+        FROM old."media"
+        WHERE "download_path" IS NOT NULL
+        """  # noqa: S608
+    )
+
+
+# TransferManager
+
+# Tables whose rows are transferred column-by-column, in dependency order.
+_DIRECT_TRANSFER_TABLES = ["media", "hash", "files"]
+
+_SKIP_TABLES = {"schema_version"}
+
+
+def run(db_path: Path, *, force: bool = False) -> None:
+    if not db_path.exists():
+        raise FileNotFoundError(f"Database not found: {db_path}")
+
+    with sqlite3.connect(db_path) as probe:
+        old_version = detect_version(probe)
+
+    logger.info("Detected schema version: %s", old_version)
+
+    if not force and old_version == CURRENT_VERSION:
+        logger.info(
+            "Database is already at the latest schema (%s). Use --force to re-run.",
+            CURRENT_VERSION,
+        )
+        return
+
+    now = sanitize_filename(str(dates.now()))
+    new_path = db_path.with_name(f"{db_path.stem}_{CURRENT_VERSION}_{now}{db_path.suffix}")
+
+    logger.debug("Creating new database at: %s", new_path)
+    _create_new_database(new_path)
+    with sqlite3.connect(new_path) as new_conn:
+        new_conn.execute("PRAGMA foreign_keys=OFF")
+        new_conn.execute(f"ATTACH DATABASE '{db_path}' AS old")
+        try:
+            _transfer(new_conn)
+        except Exception:
+            new_conn.rollback()
+            new_conn.close()
+            logger.exception("Transfer failed - original database has NOT been changed")
+            new_path.unlink()
+            raise
+        else:
+            new_conn.commit()
+
+    _apply_fixes(new_path)
+    backup_path = db_path.with_name(f"{db_path.stem}_{old_version}_{now}.backup{db_path.suffix}")
+    db_path.rename(backup_path)
+    new_path.rename(db_path)
+    logger.info("Transfer complete", extra={"color": "green"})
+    logger.info("Backup at: '%s'", backup_path)
+    logger.info("New schema version: %s", CURRENT_VERSION)
+
+
+def _create_new_database(path: Path) -> None:
+    async def connect() -> None:
+        async with database.Database(path, ignore_history=True):
+            pass
+
+    asyncio.run(connect())
+
+
+def _apply_fixes(db_path: Path) -> None:
+
+    async def fix() -> None:
+        async with common.connect(db_path) as conn:
+            await apply_fixes(conn)
+
+    asyncio.run(fix())
+
+
+def _transfer(new_conn: sqlite3.Connection) -> None:
+    old_tables = _get_table_names(new_conn, schema="old")
+    new_tables = _get_table_names(new_conn, schema="main")
+
+    for table in _DIRECT_TRANSFER_TABLES:
+        if table not in new_tables or table in _SKIP_TABLES:
+            continue
+
+        if table == "files" and "files" not in old_tables:
+            _transfer_media_to_files(new_conn)
+        else:
+            _transfer_table(new_conn, table)
+
+    # Transfer any remaining new tables not listed
+    covered = set(_DIRECT_TRANSFER_TABLES) | _SKIP_TABLES
+    for table in sorted(new_tables - covered):
+        _transfer_table(new_conn, table)
+
+
+if __name__ == "__main__":
+    with setup_console_logging():
+        run(Path(sys.argv[1]))

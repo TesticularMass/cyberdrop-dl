@@ -3,18 +3,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
-
-PRIMARY_URL = AbsoluteHttpURL("https://buzzheavier.com")
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 class BuzzHeavierCrawler(Crawler):
     SUPPORTED_PATHS: ClassVar[SupportedPaths] = {"Direct links": ""}
-    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = PRIMARY_URL
+    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://buzzheavier.com")
     DOMAIN: ClassVar[str] = "buzzheavier.com"
     FOLDER_DOMAIN: ClassVar[str] = "BuzzHeavier"
 
@@ -23,7 +21,7 @@ class BuzzHeavierCrawler(Crawler):
 
     @error_handling_wrapper
     async def file(self, scrape_item: ScrapeItem) -> None:
-        if await self.check_complete_from_referer(scrape_item):
+        if await self.check_complete_from_referer(scrape_item.url):
             return
 
         url = scrape_item.url / "download"
@@ -35,7 +33,7 @@ class BuzzHeavierCrawler(Crawler):
                 "HX-Request": "true",
             },
         ) as resp:
-            filename: str = resp.filename
+            filename = resp.content_disposition.filename
 
         link = self.parse_url(resp.headers["hx-redirect"])
         filename, ext = self.get_filename_and_ext(filename, assume_ext=".zip")

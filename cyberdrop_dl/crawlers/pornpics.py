@@ -4,22 +4,20 @@ import itertools
 from typing import TYPE_CHECKING, ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.utils import css
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
     from bs4 import BeautifulSoup
 
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 COLLECTION_PARTS = "search", "channel", "pornstar", "tag", "category"
 IMAGE_SELECTOR = "div#main a.rel-link"
 BASE_HOST: str = "pornpics.com"
-
-PRIMARY_URL = AbsoluteHttpURL("https://pornpics.com")
 
 
 class PornPicsCrawler(Crawler):
@@ -32,7 +30,7 @@ class PornPicsCrawler(Crawler):
         "Tags": "/tags/...",
         "Direct links": "",
     }
-    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = PRIMARY_URL
+    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://pornpics.com")
     DOMAIN: ClassVar[str] = "pornpics"
     FOLDER_DOMAIN: ClassVar[str] = "PornPics"
 
@@ -79,16 +77,17 @@ class PornPicsCrawler(Crawler):
 
         soup = await self.request_soup(scrape_item.url)
 
-        scrape_item.url = PRIMARY_URL / "galleries" / gallery_id  # canonical URL
+        scrape_item.url = self.PRIMARY_URL / "galleries" / gallery_id  # canonical URL
         title = css.select_text(soup, "h1")
         title = self.create_title(title, gallery_id)
         scrape_item.setup_as_album(title, album_id=gallery_id)
 
-        for _, new_scrape_item in self.iter_children(scrape_item, soup, IMAGE_SELECTOR):
+        for new_scrape_item in self.iter_children(scrape_item, soup, IMAGE_SELECTOR):
             if not self.check_album_results(new_scrape_item.url, results):
                 filename, ext = self.get_filename_and_ext(new_scrape_item.url.name)
                 await self.handle_file(new_scrape_item.url, new_scrape_item, filename, ext)
 
+    @error_handling_wrapper
     async def image(self, scrape_item: ScrapeItem) -> None:
         scrape_item.album_id = scrape_item.url.parts[-2]
         await self.direct_file(scrape_item)
@@ -108,7 +107,7 @@ class PornPicsCrawler(Crawler):
             if not offset:  # offset == 0 does not return JSON
                 soup = await self.request_soup(current_page)
                 items = soup.select(IMAGE_SELECTOR)
-                return soup, tuple(self.parse_url(css.get_attr(image, "href")) for image in items)
+                return soup, tuple(self.parse_url(css.attr(image, "href")) for image in items)
 
             # The response is JSON but the "content-type" is wrong
             async with self.request(current_page) as resp:

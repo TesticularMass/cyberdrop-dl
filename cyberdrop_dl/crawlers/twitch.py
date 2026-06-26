@@ -3,23 +3,23 @@ from __future__ import annotations
 import base64
 import dataclasses
 import json
-from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
-from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures import Resolution
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.crawlers.crawler import API, Crawler, SupportedPaths
 from cyberdrop_dl.exceptions import ScrapeError
-from cyberdrop_dl.utils.utilities import error_handling_wrapper, parse_url
+from cyberdrop_dl.mediaprops import Resolution
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.utils import parse_url
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Generator, Mapping
 
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
     from cyberdrop_dl.utils import m3u8
     from cyberdrop_dl.utils.m3u8 import M3U8
 
 
-_GQL_ENDPOINT = AbsoluteHttpURL("https://gql.twitch.tv/gql")
 _CLIPS_URL = AbsoluteHttpURL("https://clips.twitch.tv")
 _M3U8_BASE = AbsoluteHttpURL("https://usher.ttvnw.net")
 
@@ -66,22 +66,22 @@ class TwitchCrawler(Crawler):
                 raise ValueError
 
     def __post_init__(self) -> None:
-        self.api = TwitchAPI(self)
+        self.api: TwitchAPI = TwitchAPI.from_crawler(self)
 
-    async def _get_m3u8(
+    async def _request_m3u8(
         self,
         url: AbsoluteHttpURL,
         /,
-        headers: dict[str, str] | None = None,
-        media_type: Literal["video", "audio", "subtitles"] | None = None,
+        headers: Mapping[str, str] | None = None,
+        media_type: Literal["video", "audio", "subtitle"] | None = None,
     ) -> m3u8.M3U8:
-        m3u8_obj = await super()._get_m3u8(url, headers=headers, media_type=media_type)
+        m3u8_obj = await super()._request_m3u8(url, headers=headers, media_type=media_type)
 
         # Some formats are "hidden" unless the user is logged in (1080p+ resolutions)
-        # We can extract and parse them manually, bypasing the logging requirement
-        for data in m3u8_obj.data.get("session_data", ()):
-            if data.get("data_id") == "com.amazon.ivs.unavailable-media":
-                unavailable_media = json.loads(base64.b64decode(data["value"]))
+        # We can extract and parse them manually, bypassing the logging requirement
+        for data in m3u8_obj.session_data:
+            if data.data_id == "com.amazon.ivs.unavailable-media" and data.value:
+                unavailable_media = json.loads(base64.b64decode(data.value))
                 _parse_unavailable_media(m3u8_obj, unavailable_media)
                 break
 
@@ -91,7 +91,7 @@ class TwitchCrawler(Crawler):
     async def vod(self, scrape_item: ScrapeItem, video_id: str) -> None:
         video_id = video_id.removeprefix("v")
         scrape_item.url = self.PRIMARY_URL / "videos" / video_id
-        if await self.check_complete_from_referer(scrape_item):
+        if await self.check_complete_from_referer(scrape_item.url):
             return
 
         video = await self.api.video(video_id)
@@ -99,7 +99,7 @@ class TwitchCrawler(Crawler):
         if not date:
             raise ScrapeError(422, "Lives are not supported")
 
-        scrape_item.possible_datetime = self.parse_iso_date(date)
+        scrape_item.uploaded_at = self.parse_iso_date(date)
         title = video.get("title") or "video"
         access_token = await self.api.access_token(video_id)
         m3u8_url = (_M3U8_BASE / f"vod/{video_id}.m3u8").with_query(
@@ -115,7 +115,7 @@ class TwitchCrawler(Crawler):
             token=access_token["value"],
         )
 
-        m3u8, info = await self.get_m3u8_from_playlist_url(m3u8_url)
+        m3u8, info = await self.request_m3u8_playlist(m3u8_url)
         fps = info.stream_info.frame_rate
         filename = self.create_custom_filename(
             title,
@@ -141,15 +141,12 @@ class TwitchCrawler(Crawler):
     @error_handling_wrapper
     async def clip(self, scrape_item: ScrapeItem, slug: str) -> None:
         scrape_item.url = _CLIPS_URL / slug
-        if await self.check_complete_from_referer(scrape_item):
+        if await self.check_complete_from_referer(scrape_item.url):
             return
 
         clip = await self.api.clip(slug)
-        if not clip:
-            raise ScrapeError(404)
-
         title: str = clip.get("title") or "clip"
-        scrape_item.possible_datetime = self.parse_iso_date(clip["createdAt"])
+        scrape_item.uploaded_at = self.parse_iso_date(clip["createdAt"])
         access_token: dict[str, str] = clip["playbackAccessToken"]
 
         best = max(ClipFormat.parse(clip["assets"][0]))
@@ -164,44 +161,39 @@ class TwitchCrawler(Crawler):
         await self.handle_file(source, scrape_item, title, custom_filename=filename)
 
 
-class TwitchAPI:
+class TwitchAPI(API):
     """GraphQL API interface for twitch"""
 
-    _CLIENT_ID: Final = "kimne78kx3ncx6brgo4mv6wki5h1ko"
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}(client_id={self._CLIENT_ID})"
-
-    def __init__(self, crawler: Crawler) -> None:
-        self._crawler = crawler
+    GQL_ENDPOINT: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://gql.twitch.tv/gql")
+    CLIENT_ID: ClassVar[str] = "kimne78kx3ncx6brgo4mv6wki5h1ko"
 
     @classmethod
-    def _prepare_query(cls, name: str, variables: dict[str, Any], hash: str) -> dict[str, Any]:
+    def _prepare_query(cls, name: str, variables: dict[str, Any], query_hash: str) -> dict[str, Any]:
         return {
             "operationName": name,
             "variables": variables,
             "extensions": {
                 "persistedQuery": {
                     "version": 1,
-                    "sha256Hash": hash,
+                    "sha256Hash": query_hash,
                 }
             },
         }
 
     async def _request_many(self, queries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return await self._crawler.request_json(
-            _GQL_ENDPOINT,
+        return await self.request_json(
+            self.GQL_ENDPOINT,
             method="POST",
             headers={
                 "Content-Type": "text/plain;charset=UTF-8",
-                "Client-ID": self._CLIENT_ID,
+                "Client-ID": self.CLIENT_ID,
             },
             json=queries,
         )
 
-    async def _request(self, name: str, variables: dict[str, Any], hash: str) -> dict[str, Any]:
+    async def _request(self, name: str, variables: dict[str, Any], query_hash: str) -> dict[str, Any]:
         """Simplified version to make a single query request"""
-        query = self._prepare_query(name, variables, hash)
+        query = self._prepare_query(name, variables, query_hash)
         return (await self._request_many([query]))[0]
 
     async def video(self, video_id: str) -> dict[str, Any]:
@@ -213,7 +205,10 @@ class TwitchAPI:
             },
             "45111672eea2e507f8ba44d101a61862f9c56b11dee09a15634cb75cb9b9084d",
         )
-        return resp["data"]["video"]
+        video = resp["data"]["video"]
+        if video is None:
+            raise ScrapeError(404)
+        return video
 
     async def collection(self, collection_id: str) -> dict[str, Any]:
         resp = await self._request(
@@ -223,7 +218,10 @@ class TwitchAPI:
             },
             "016e1e4ccee0eb4698eb3bf1a04dc1c077fb746c78c82bac9a8f0289658fbd1a",
         )
-        return resp["data"]["collection"]
+        col = resp["data"]["collection"]
+        if col is None:
+            raise ScrapeError(404)
+        return col
 
     async def clip(self, slug: str) -> dict[str, Any]:
         resp = await self._request(
@@ -231,9 +229,12 @@ class TwitchAPI:
             {
                 "slug": slug,
             },
-            "1844261bb449fa51e6167040311da4a7a5f1c34fe71c71a3e0c4f551bc30c698",
+            "0a02bb974443b576f5579aab0fef1d4b7f44e58a8a256f0c5adfead0db70640f",
         )
-        return resp["data"]["clip"]
+        clip = resp["data"]["clip"]
+        if clip is None:
+            raise ScrapeError(404)
+        return clip
 
     async def access_token(self, video_id: str) -> dict[str, str]:
         resp = await self._request(

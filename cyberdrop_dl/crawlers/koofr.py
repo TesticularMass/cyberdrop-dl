@@ -5,13 +5,12 @@ from typing import Any, ClassVar, Literal
 
 from pydantic import dataclasses
 
-from cyberdrop_dl.crawlers.crawler import Crawler, DBPathBuilder, SupportedDomains, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL, ScrapeItem
+from cyberdrop_dl.crawlers.crawler import API, Crawler, SupportedDomains, SupportedPaths
 from cyberdrop_dl.exceptions import DownloadError, PasswordProtectedError, ScrapeError
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.url_objects import AbsoluteHttpURL, ScrapeItem
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 _APP_URL = AbsoluteHttpURL("https://app.koofr.net")
-_APP_LINKS = _APP_URL / "api/v2/public/links"
 _PRIMARY_URL = AbsoluteHttpURL("https://koofr.eu")
 _SHORT_LINK_CDN = AbsoluteHttpURL("https://k00.fr")
 
@@ -26,7 +25,7 @@ class Node:
     hash: str = ""  # md5
 
 
-class KooFrCrawler(Crawler):
+class KooFrCrawler(Crawler, db_path="path_qs_frag"):
     SUPPORTED_DOMAINS: ClassVar[SupportedDomains] = "koofr.net", "koofr.eu", _SHORT_LINK_CDN.host
     SUPPORTED_PATHS: ClassVar[SupportedPaths] = {
         "Public Share": (
@@ -36,10 +35,9 @@ class KooFrCrawler(Crawler):
     }
     PRIMARY_URL: ClassVar[AbsoluteHttpURL] = _PRIMARY_URL
     DOMAIN: ClassVar[str] = "koofr"
-    create_db_path = staticmethod(DBPathBuilder.path_qs_frag)
 
     def __post_init__(self) -> None:
-        self.api = KooFrAPI(self)
+        self.api: KooFrAPI = KooFrAPI.from_crawler(self)
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         if scrape_item.url.host == _SHORT_LINK_CDN.host:
@@ -79,7 +77,7 @@ class KooFrCrawler(Crawler):
 
                 url = scrape_item.url.update_query(path=node.path)
                 new_scrape_item = scrape_item.create_child(url)
-                new_scrape_item.add_to_parent_title(node.name)
+                new_scrape_item.append_folders(node.name)
                 tg.create_task(self._walk_folder(new_scrape_item, content_id, node.path))
 
     @error_handling_wrapper
@@ -91,19 +89,18 @@ class KooFrCrawler(Crawler):
             return
 
         filename, ext = self.get_filename_and_ext(file.name)
-        scrape_item.possible_datetime = file.modified // 1000
+        scrape_item.uploaded_at = file.modified // 1000
         await self.handle_file(link, scrape_item, file.name, ext, custom_filename=filename)
 
 
-class KooFrAPI:
-    def __init__(self, crawler: KooFrCrawler) -> None:
-        self._crawler = crawler
+class KooFrAPI(API):
+    ENDPOINT: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://app.koofr.net/api/v2/public/links")
 
     async def get_info(self, content_id: str, path: str, password: str | None) -> Node:
         password = password or ""
-        api_url = (_APP_LINKS / content_id).with_query(path=path, password=password)
+        api_url = (self.ENDPOINT / content_id).with_query(path=path, password=password)
         try:
-            resp: dict[str, Any] = await self._crawler.request_json(api_url)
+            resp: dict[str, Any] = await self.request_json(api_url)
         except DownloadError as e:
             if e.status == 401:
                 msg = "Incorrect password" if password else None
@@ -117,7 +114,7 @@ class KooFrAPI:
 
     async def get_children(self, content_id: str, path: str, password: str | None) -> list[Node]:
         password = password or ""
-        api_url = (_APP_LINKS / content_id / "bundle").with_query(path=path, password=password)
-        nodes: list[dict[str, Any]] = (await self._crawler.request_json(api_url))["files"]
+        api_url = (self.ENDPOINT / content_id / "bundle").with_query(path=path, password=password)
+        nodes: list[dict[str, Any]] = (await self.request_json(api_url))["files"]
         base = path.removesuffix("/")
         return [Node(path=f"{base}/{node['name']}", **node) for node in nodes]

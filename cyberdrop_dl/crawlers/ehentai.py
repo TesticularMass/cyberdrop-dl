@@ -1,29 +1,22 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, override
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.utils import css
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
-    import yarl
-
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
-class Selectors:
-    IMAGE = "img[id=img]"
+class Selector:
+    IMAGE = "img#img"
     ALBUM_IMAGES = "div#gdt.gt200 a"
-    DATE = "td[class=gdt2]"
-    TITLE = "h1[id=gn]"
+    DATE = "td.gdt2"
+    TITLE = "h1#gn"
     NEXT_PAGE = "td[onclick='document.location=this.firstChild.href']:-soup-contains('>') a"
-
-
-_SELECTORS = Selectors()
-
-PRIMARY_URL = AbsoluteHttpURL("https://e-hentai.org/")
 
 
 class EHentaiCrawler(Crawler):
@@ -31,60 +24,48 @@ class EHentaiCrawler(Crawler):
         "Album": "/g/...",
         "File": "/s/...",
     }
-    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = PRIMARY_URL
-    NEXT_PAGE_SELECTOR: ClassVar[str] = _SELECTORS.NEXT_PAGE
+    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://e-hentai.org/")
+    NEXT_PAGE_SELECTOR: ClassVar[str] = Selector.NEXT_PAGE
     DOMAIN: ClassVar[str] = "e-hentai"
     FOLDER_DOMAIN: ClassVar[str] = "E-Hentai"
 
+    @override
     @staticmethod
-    def create_db_path(url: yarl.URL) -> str:
-        return url.path.split("keystamp")[0][:-1]
-
-    def __post_init__(self) -> None:
-        self._warnings_set = False
+    def __db_path__(url: AbsoluteHttpURL, /) -> str:
+        return url.path.partition("/keystamp")[0]
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
-        if "g" in scrape_item.url.parts:
-            return await self.album(scrape_item)
-        if "s" in scrape_item.url.parts:
-            return await self.image(scrape_item)
-        raise ValueError
+        match scrape_item.url.parts[1:]:
+            case ["g", _, gallery_id]:
+                return await self.gallery(scrape_item, gallery_id)
+            case ["s", _, _]:
+                return await self.image(scrape_item)
+            case _:
+                raise ValueError
 
     @error_handling_wrapper
-    async def album(self, scrape_item: ScrapeItem) -> None:
-        async with self.startup_lock:
-            if not self._warnings_set:
-                await self.set_no_warnings(scrape_item)
-
+    async def gallery(self, scrape_item: ScrapeItem, gallery_id: str) -> None:
         title: str = ""
-        gallery_id = scrape_item.url.parts[2]
         scrape_item.url = scrape_item.url.with_query(None)
         async for soup in self.web_pager(scrape_item.url):
             if not title:
-                title = self.create_title(css.select_text(soup, _SELECTORS.TITLE))
-                date_str: str = css.select_text(soup, _SELECTORS.DATE)
+                title = self.create_title(css.select_text(soup, Selector.TITLE))
+                date_str: str = css.select_text(soup, Selector.DATE)
                 title = self.create_title(title, gallery_id)
                 scrape_item.setup_as_album(title, album_id=gallery_id)
-                scrape_item.possible_datetime = self.parse_iso_date(date_str)
+                scrape_item.uploaded_at = self.parse_iso_date(date_str)
 
-            for _, new_scrape_item in self.iter_children(scrape_item, soup, _SELECTORS.ALBUM_IMAGES):
+            for new_scrape_item in self.iter_children(scrape_item, soup, Selector.ALBUM_IMAGES):
                 self.create_task(self.run(new_scrape_item))
 
     @error_handling_wrapper
     async def image(self, scrape_item: ScrapeItem) -> None:
-        if await self.check_complete_from_referer(scrape_item):
+        if await self.check_complete_from_referer(scrape_item.url):
             return
 
         soup = await self.request_soup(scrape_item.url)
-        link_str: str = css.select(soup, _SELECTORS.IMAGE, "src")
-        link = self.parse_url(link_str)
-        filename, ext = self.get_filename_and_ext(link.name)
-        custom_filename = self.create_custom_filename(scrape_item.url.name, ext)
-        await self.handle_file(link, scrape_item, filename, ext, custom_filename=custom_filename)
-
-    @error_handling_wrapper
-    async def set_no_warnings(self, scrape_item: ScrapeItem) -> None:
-        """Sets the no warnings cookie."""
-        url = scrape_item.url.update_query(nw="session")
-        async with self.request(url):
-            self._warnings_set = True
+        link: str = css.select(soup, Selector.IMAGE, "src")
+        src = self.parse_url(link)
+        _, ext = self.get_filename_and_ext(src.name)
+        filename = self.create_custom_filename(scrape_item.url.name, ext)
+        await self.handle_file(src, scrape_item, src.name, ext, custom_filename=filename)

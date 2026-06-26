@@ -1,114 +1,62 @@
 from pathlib import Path
-from unittest import mock
 
 import pytest
-from pydantic import ValidationError
+from cyclopts import App
+from cyclopts.exceptions import ValidationError
 
-from cyberdrop_dl.main import _create_director, run
-from cyberdrop_dl.utils.args import parse_args
+from cyberdrop_dl import __version__
+from cyberdrop_dl.__main__ import run_cdl
+from cyberdrop_dl.commands import CLIarguments
+from cyberdrop_dl.commands.report import generate_report
+
+app = App(result_action="return_value", exit_on_error=False, suppress_keyboard_interrupt=False)
+
+
+@app.default()
+def parse_cli_args(*, cli: CLIarguments | None = None) -> CLIarguments | None:
+    return cli
 
 
 @pytest.mark.parametrize(
-    "command, text",
+    ("command", "text"),
     [
         ("--help", "Bulk asynchronous downloader for multiple file hosts"),
-        ("--show-supported-sites", "for a details about supported paths"),
+        ("show", "cyberdrop-dl supported sites"),
     ],
 )
-def test_command_by_console_output(tmp_cwd: Path, capsys: pytest.CaptureFixture[str], command: str, text: str) -> None:
+def test_command_by_console_output(capsys: pytest.CaptureFixture[str], command: str, text: str) -> None:
     try:
-        run(command.split())
+        run_cdl(command.split())
     except SystemExit:
         pass
     output = capsys.readouterr().out
     assert text in output
 
 
-def test_startup_logger_should_not_be_created_on_a_successful_run(tmp_cwd: Path) -> None:
-    run("--download")
-    startup_file = Path.cwd() / "startup.log"
-    assert not startup_file.exists()
+def test_report() -> None:
+    report = generate_report()
+
+    for value in "cyberdrop-dl", __version__, "aiohttp", "GIL enabled":
+        assert value in report
 
 
-def test_startup_logger_should_not_be_created_on_invalid_cookies(tmp_cwd: Path) -> None:
-    from cyberdrop_dl.utils.logger import catch_exceptions
+def test_cli_args_parsing(tmp_cwd: Path) -> None:
+    cli = app([])
+    assert cli is None
+    config_yaml = Path("test_file.yaml")
 
-    director = _create_director("--download")
-    cookies_file = director.manager.path_manager.cookies_dir / "cookies.txt"
-    cookies_file.write_text("Not a cookie file", encoding="utf8")
-    catch_exceptions(director.run)()
+    with pytest.raises(ValidationError, match="does not exist"):
+        _ = app(["--config-file", config_yaml.name])
 
-    logs = director.manager.path_manager.main_log.read_text(encoding="utf8")
-    assert "does not look like a Netscape format cookies file" in logs
+    config_text = config_yaml.with_suffix(".txt")
+    config_text.touch()
+    with pytest.raises(ValidationError, match='does not match one of supported extensions \\{"yaml", "yml"\\}'):
+        _ = app(["--config-file", config_text.name])
 
-    startup_file = Path.cwd() / "startup.log"
-    assert not startup_file.exists()
-
-
-def test_startup_logger_is_created_on_yaml_error(tmp_cwd: Path) -> None:
-    from cyberdrop_dl.exceptions import InvalidYamlError
-
-    with mock.patch(
-        "cyberdrop_dl.director.Director._run", side_effect=InvalidYamlError(Path("fake_file.yaml"), ValueError())
-    ):
-        try:
-            run("--download")
-        except SystemExit:
-            pass
-
-    startup_file = Path.cwd() / "startup.log"
-    assert startup_file.exists()
-
-    logs = startup_file.read_text(encoding="utf8")
-    assert "Unable to read file" in logs
-
-
-@pytest.mark.parametrize(
-    "exception, exists",
-    [
-        (ValueError, True),
-        (OSError, True),
-        (KeyboardInterrupt, False),
-        (ValidationError("", []), False),
-    ],
-)
-def test_startup_logger_when_manager_startup_fails(
-    tmp_cwd: Path, exception: Exception | type[Exception], exists: bool, capsys: pytest.CaptureFixture[str]
-) -> None:
-    with mock.patch("cyberdrop_dl.managers.manager.Manager.set_constants", side_effect=exception):
-        try:
-            run("--download")
-        except SystemExit:
-            pass
-        startup_file = Path.cwd() / "startup.log"
-        assert startup_file.exists() == exists
-
-
-def test_startup_logger_should_not_be_created_when_using_invalid_cli_args(
-    tmp_cwd: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    try:
-        run("--invalid-command")
-    except SystemExit:
-        pass
-    stderr = capsys.readouterr().err
-    assert "unrecognized arguments: --invalid-command" in stderr
-    startup_file = Path.cwd() / "startup.log"
-    assert not startup_file.exists()
-
-
-def test_impersonate_defaults_to_true_with_no_args() -> None:
-    result = parse_args(["--download"])
-    assert result.cli_only_args.impersonate is None
-    result = parse_args(["--impersonate"])
-    assert result.cli_only_args.impersonate is True
-
-
-def test_impersonate_accepts_valid_targets() -> None:
-    result = parse_args(["--download", "--impersonate", "chrome"])
-    assert result.cli_only_args.impersonate == "chrome"
-
-
-def test_impersonate_does_not_accepts_invalid_values() -> None:
-    with pytest.raises(SystemExit):
-        parse_args(["--impersonate", "not_a_browser"])
+    config_yaml.touch()
+    config_yaml = config_yaml.with_suffix(".yaml")
+    cli = app(["--config-file", config_yaml.name])
+    assert type(cli) is CLIarguments
+    assert cli.config_file == tmp_cwd / config_yaml
+    assert cli.database_file is None
+    assert cli.cache_file is None

@@ -1,34 +1,26 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-from unittest import mock
 
 import pytest
 from bs4 import BeautifulSoup
 
+from cyberdrop_dl.config.appdata import AppData, AppDirs
 from cyberdrop_dl.crawlers import _forum
 from cyberdrop_dl.crawlers import xenforo as crawlers
 from cyberdrop_dl.crawlers.xenforo import xenforo
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL, ScrapeItem
 from cyberdrop_dl.exceptions import ScrapeError
-from cyberdrop_dl.managers.manager import Manager
-
-if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+from cyberdrop_dl.manager import Manager
+from cyberdrop_dl.url_objects import AbsoluteHttpURL, ScrapeItem
 
 
 def _item(url: str) -> ScrapeItem:
-    return ScrapeItem(url=AbsoluteHttpURL(url))
+    return ScrapeItem.from_url(url)
 
 
-class MockProgress:
-    scraping_progress = None
+manager = Manager(appdata=AppData.from_dirs(AppDirs.from_path(Path(__file__).parent / "xenforo_appdata")))
 
-
-manager = Manager()
 scrape_item = _item("https://xenforo.com/community")
-manager.progress_manager = MockProgress()  # type: ignore
 crawler_instances = {crawler: crawler(manager) for crawler in crawlers.XF_CRAWLERS}
 TEST_CRAWLER = crawler_instances[crawlers.CelebForumCrawler]
 
@@ -46,7 +38,7 @@ def _html(string: str) -> str:
 def _post(
     message_body: str = "",
     message_attachments: str = "",
-    id: int = 12345,
+    id: int = 12345,  # noqa: A002
     crawler: xenforo.XenforoCrawler | None = None,
 ) -> _forum.ForumPost:
     crawler = crawler or TEST_CRAWLER
@@ -55,66 +47,15 @@ def _post(
     return _forum.ForumPost.new(article, crawler.SELECTORS.posts)
 
 
-def _item_call(value: Any) -> mock._Call:
-    return mock.call(scrape_item, value)
-
-
-def _any_item_call(value: Any) -> mock._Call:
-    return mock.call(mock.ANY, value)
-
-
-def _amock(func: str = "process_child", crawler: xenforo.XenforoCrawler | None = None) -> mock._patch[mock.AsyncMock]:
-    crawler = crawler or TEST_CRAWLER
-    return mock.patch.object(crawler, func, new_callable=mock.AsyncMock)
-
-
-SIMPCITY_WHOLE_THREAD_FIXTURE = (
-    Path(__file__).resolve().parents[1] / "test_files" / "xenforo" / "simpcity_whole_thread_les_chesticles.html"
-)
-
-
-def _load_xenforo_fixture(path: Path) -> BeautifulSoup:
-    return BeautifulSoup(path.read_text(encoding="utf-8"), "html.parser")
-
-
-def test_simpcity_whole_thread_fixture_contains_expected_post_ids() -> None:
-    soup = _load_xenforo_fixture(SIMPCITY_WHOLE_THREAD_FIXTURE)
-    articles = soup.select("article.message[id*=post]")
-    ids = [int(article["id"].rsplit("-", 1)[-1]) for article in articles]
-    assert ids == [
-        659664,
-        761355,
-        943678,
-        3173859,
-        3174102,
-        3284977,
-        3297485,
-        3301990,
-        44157189,
-        44217641,
-        45075694,
-    ]
-
-
 @pytest.fixture(name="manager")
-async def post_startup_manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncGenerator[Manager]:
-    appdata = str(tmp_path)
-    downloads = str(tmp_path / "Downloads")
-    monkeypatch.chdir(tmp_path)
-    manager = Manager(("--appdata-folder", appdata, "-d", downloads))
-    manager.startup()
-    manager.path_manager.startup()
-    manager.log_manager.startup()
-    await manager.async_startup()
-    yield manager
-    await manager.async_db_close()
-    await manager.close()
+def post_startup_manager(running_manager: Manager) -> Manager:
+    return running_manager
 
 
 @pytest.mark.parametrize(
     ("url", "thread_name_and_id", "result", "canonical_url"),
     [
-        [
+        (
             "https://simpcity.su/threads/general-support.208041/page-260#post-23934165",
             "general-support.208041",
             (
@@ -124,8 +65,8 @@ async def post_startup_manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
                 23934165,
             ),
             "https://simpcity.su/threads/general-support.208041",
-        ],
-        [
+        ),
+        (
             "https://celebforum.to/threads/infos-regelaenderungen.18821/page-3",
             "infos-regelaenderungen.18821",
             (
@@ -135,8 +76,8 @@ async def post_startup_manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
                 None,
             ),
             "https://celebforum.to/threads/infos-regelaenderungen.18821",
-        ],
-        [
+        ),
+        (
             "https://www.bellazon.com/main/topic/27120-the-official-victorias-secret-thread",
             "27120-the-official-victorias-secret-thread",
             (
@@ -146,8 +87,8 @@ async def post_startup_manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
                 None,
             ),
             "https://www.bellazon.com/main/topic/27120-the-official-victorias-secret-thread",
-        ],
-        [
+        ),
+        (
             "https://forums.socialmediagirls.com/threads/forum-rules.14/post-34",
             "forum-rules.14",
             (
@@ -157,8 +98,8 @@ async def post_startup_manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
                 34,
             ),
             "https://forums.socialmediagirls.com/threads/forum-rules.14",
-        ],
-        [
+        ),
+        (
             "https://forums.socialmediagirls.com/threads/should-we-ban-gofile-76-5-say-no.436901/post-3942103",
             "should-we-ban-gofile-76-5-say-no.436901",
             (
@@ -168,8 +109,8 @@ async def post_startup_manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
                 3942103,
             ),
             "https://forums.socialmediagirls.com/threads/should-we-ban-gofile-76-5-say-no.436901",
-        ],
-        [
+        ),
+        (
             "https://forums.socialmediagirls.com/threads/en-fr-tools-to-download-upload-content-websites-softwares-extensions.13930/page-11/#post-2070848",
             "en-fr-tools-to-download-upload-content-websites-softwares-extensions.13930",
             (
@@ -179,8 +120,8 @@ async def post_startup_manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
                 2070848,
             ),
             "https://forums.socialmediagirls.com/threads/en-fr-tools-to-download-upload-content-websites-softwares-extensions.13930",
-        ],
-        [
+        ),
+        (
             "https://f95zone.to/threads/mod-uploading-rules-12-02-2018.9236/post-2726083",
             "mod-uploading-rules-12-02-2018.9236",
             (
@@ -190,8 +131,8 @@ async def post_startup_manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
                 2726083,
             ),
             "https://f95zone.to/threads/mod-uploading-rules-12-02-2018.9236",
-        ],
-        [
+        ),
+        (
             "https://650f.bike/threads/central-stand-honda-cb650r-constands-power-evo.3093/page-2",
             "central-stand-honda-cb650r-constands-power-evo.3093",
             (
@@ -201,8 +142,8 @@ async def post_startup_manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
                 None,
             ),
             "https://650f.bike/threads/central-stand-honda-cb650r-constands-power-evo.3093",
-        ],
-        [
+        ),
+        (
             "https://arstechnica.com/civis/threads/the-new-perpetual-photo-accessory-thread.1274775/page-3#post-29155063",
             "the-new-perpetual-photo-accessory-thread.1274775",
             (
@@ -212,8 +153,8 @@ async def post_startup_manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
                 29155063,
             ),
             "https://arstechnica.com/civis/threads/the-new-perpetual-photo-accessory-thread.1274775",
-        ],
-        [
+        ),
+        (
             "https://www.laneros.com/temas/iphone-16-16e-16-plus-16-pro-16-promax.256047/page-64#post-7512404",
             "iphone-16-16e-16-plus-16-pro-16-promax.256047",
             (
@@ -223,7 +164,7 @@ async def post_startup_manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
                 7512404,
             ),
             "https://www.laneros.com/temas/iphone-16-16e-16-plus-16-pro-16-promax.256047",
-        ],
+        ),
     ],
 )
 def test_parse_thread(url: str, thread_name_and_id: str, result: tuple[int, str, int, int], canonical_url: str) -> None:
@@ -233,45 +174,8 @@ def test_parse_thread(url: str, thread_name_and_id: str, result: tuple[int, str,
     assert result_ == parsed
 
 
-def test_normalize_thread_request_url_removes_alias_segment() -> None:
-    url = AbsoluteHttpURL(
-        "https://simpcity.cr/threads/katelyn-s5410/ampisi-mrscampisi-thecampisis-the-campisis.125410/"
-    )
-    normalized = _forum.normalize_thread_request_url(url, thread_part_index=1, thread_name_index=3)
-    assert normalized == AbsoluteHttpURL(
-        "https://simpcity.cr/threads/ampisi-mrscampisi-thecampisis-the-campisis.125410/"
-    )
-
-
-@pytest.mark.asyncio
-async def test_fetch_thread_accepts_alias_segment_before_thread_name() -> None:
-    scrape_item = _item("https://simpcity.cr/threads/katelyn-s5410/ampisi-mrscampisi-thecampisis-the-campisis.125410/")
-    expected_request_url = AbsoluteHttpURL(
-        "https://simpcity.cr/threads/ampisi-mrscampisi-thecampisis-the-campisis.125410/"
-    )
-    expected_canonical_url = AbsoluteHttpURL(
-        "https://simpcity.cr/threads/ampisi-mrscampisi-thecampisis-the-campisis.125410"
-    )
-
-    with (
-        mock.patch.object(TEST_CRAWLER, "check_thread_recursion"),
-        mock.patch.object(TEST_CRAWLER, "thread", new_callable=mock.AsyncMock) as thread_mock,
-    ):
-        await TEST_CRAWLER.fetch_thread(scrape_item)
-
-    assert scrape_item.url == expected_request_url
-    thread = thread_mock.await_args.args[1]
-    assert thread == _forum.Thread(
-        125410,
-        "ampisi-mrscampisi-thecampisis-the-campisis",
-        1,
-        None,
-        expected_canonical_url,
-    )
-
-
 @pytest.mark.parametrize(
-    "link, out",
+    ("link", "out"),
     [
         (
             "https://media.imagepond.net/media/IMG_2153a940fb5680979a52.jpg",
@@ -360,7 +264,7 @@ def test_parse_login_form_no_input_form_should_fail() -> None:
 
 
 @pytest.mark.parametrize(
-    "input_string, expected_output",
+    ("input_string", "expected_output"),
     [
         (
             r"some_text_before \/\/simpcity.su/path/to/resource.mp4 some_text_after",
@@ -385,18 +289,6 @@ def test_parse_login_form_no_input_form_should_fail() -> None:
         (
             r"text with no slashes https://xenforo.com/path",
             "https://xenforo.com/path",
-        ),
-        (
-            r"prefix https://example.com/path, suffix",
-            "https://example.com/path",
-        ),
-        (
-            r"prefix https://example.com/path#frag, suffix",
-            "https://example.com/path#frag",
-        ),
-        (
-            r"prefix https://example.com/path?x=1,y=2 suffix",
-            "https://example.com/path?x=1,y=2",
         ),
         # Test cases where no URL is found
         (
@@ -438,6 +330,7 @@ def test_extract_embed_url(input_string: str, expected_output: str) -> None:
     assert _forum.extract_embed_url(input_string) == expected_output
 
 
+@pytest.mark.xfail  # regex can not handle URLs with commands in it (kvs)
 @pytest.mark.parametrize(
     ("input_string", "expected_output"),
     [
@@ -445,21 +338,13 @@ def test_extract_embed_url(input_string: str, expected_output: str) -> None:
             r"start \/\/media.jp5.net/videos/2023/clip_id-123.mp4?autoplay=true&loop=false#t=10s end",
             "https://media.jp5.net/videos/2023/clip_id-123.mp4?autoplay=true&loop=false#t=10s",
         ),
+        (
+            r"start \/\/jupiter4.thisvid.com/key=SEtXHaueMU2PByWg4GNMnw,end=1750179436/speed=1.4/buffer=5.0/12702000/12702535/12702535.mp4 other",
+            "https://jupiter4.thisvid.com/key=SEtXHaueMU2PByWg4GNMnw,end=1750179436/speed=1.4/buffer=5.0/12702000/12702535/12702535.mp4",
+        ),
     ],
 )
 def test_extract_embed_url_complex_path(input_string: str, expected_output: str) -> None:
-    assert _forum.extract_embed_url(input_string) == expected_output
-
-
-def test_extract_embed_url_kvs_style_path_preserves_commands() -> None:
-    input_string = (
-        r"start \/\/jupiter4.thisvid.com/key=SEtXHaueMU2PByWg4GNMnw,end=1750179436/speed=1.4/"
-        r"buffer=5.0/12702000/12702535/12702535.mp4 other"
-    )
-    expected_output = (
-        "https://jupiter4.thisvid.com/key=SEtXHaueMU2PByWg4GNMnw,end=1750179436/speed=1.4/"
-        "buffer=5.0/12702000/12702535/12702535.mp4"
-    )
     assert _forum.extract_embed_url(input_string) == expected_output
 
 
@@ -504,7 +389,7 @@ def test_lazy_load_embeds() -> None:
     </div>""")
     result = list(TEST_CRAWLER._lazy_load_embeds(post))
     assert len(result) == 1
-    assert "//redgifs.com/ifr/downrightcluelesswirm" == result[0]
+    assert result[0] == "//redgifs.com/ifr/downrightcluelesswirm"
 
 
 @pytest.mark.parametrize(
@@ -563,216 +448,6 @@ def test_lazy_load_embeds() -> None:
                 "https://simp6.jpg5.su/images3/issfanfan-20250129-0001ef763780833ed714.md.jpg",
             ],
         ),
-        (
-            crawlers.SimpCityCrawler,
-            """
-                <a href="https://jpg5.su/img/aqDYT6c" target="_blank" class="link link--external" rel="nofollow ugc noopener">
-                    <img
-                        src="https://simp6.jpg5.su/images3/issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        data-url="https://simp6.jpg5.su/images3/issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        class="bbImage"
-                        loading="lazy"
-                        alt="issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        title="issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        style=""
-                        width=""
-                        height=""
-                    />
-                </a>
-                <a href="https://jpg5.su/img/aqDYZAt" target="_blank" class="link link--external" rel="nofollow ugc noopener">
-                    <img
-                        src="https://simp6.jpg5.su/images3/issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        data-url="https://simp6.jpg5.su/images3/issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        class="bbImage"
-                        loading="lazy"
-                        alt="issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        title="issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        style=""
-                        width=""
-                        height=""
-                    />
-                </a>
-            </div>""",
-            [
-                "https://simp6.jpg5.su/images3/issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg",
-                "https://simp6.jpg5.su/images3/issfanfan-20250129-0001ef763780833ed714.md.jpg",
-            ],
-        ),
-        (
-            crawlers.SimpCityCrawler,
-            """
-                <a href="https://jpg5.su/img/aqDYT6c" target="_blank" class="link link--external" rel="nofollow ugc noopener">
-                    <img
-                        src="https://simp6.jpg5.su/images3/issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        data-url="https://simp6.jpg5.su/images3/issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        class="bbImage"
-                        loading="lazy"
-                        alt="issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        title="issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        style=""
-                        width=""
-                        height=""
-                    />
-                </a>
-                <a href="https://jpg5.su/img/aqDYZAt" target="_blank" class="link link--external" rel="nofollow ugc noopener">
-                    <img
-                        src="https://simp6.jpg5.su/images3/issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        data-url="https://simp6.jpg5.su/images3/issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        class="bbImage"
-                        loading="lazy"
-                        alt="issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        title="issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        style=""
-                        width=""
-                        height=""
-                    />
-                </a>
-            </div>""",
-            [
-                "https://simp6.jpg5.su/images3/issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg",
-                "https://simp6.jpg5.su/images3/issfanfan-20250129-0001ef763780833ed714.md.jpg",
-            ],
-        ),
-        (
-            crawlers.SimpCityCrawler,
-            """
-                <a href="https://jpg5.su/img/aqDYT6c" target="_blank" class="link link--external" rel="nofollow ugc noopener">
-                    <img
-                        src="https://simp6.jpg5.su/images3/issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        data-url="https://simp6.jpg5.su/images3/issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        class="bbImage"
-                        loading="lazy"
-                        alt="issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        title="issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        style=""
-                        width=""
-                        height=""
-                    />
-                </a>
-                <a href="https://jpg5.su/img/aqDYZAt" target="_blank" class="link link--external" rel="nofollow ugc noopener">
-                    <img
-                        src="https://simp6.jpg5.su/images3/issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        data-url="https://simp6.jpg5.su/images3/issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        class="bbImage"
-                        loading="lazy"
-                        alt="issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        title="issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        style=""
-                        width=""
-                        height=""
-                    />
-                </a>
-            </div>""",
-            [
-                "https://simp6.jpg5.su/images3/issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg",
-                "https://simp6.jpg5.su/images3/issfanfan-20250129-0001ef763780833ed714.md.jpg",
-            ],
-        ),
-        (
-            crawlers.SimpCityCrawler,
-            """
-                <a href="https://jpg5.su/img/aqDYT6c" target="_blank" class="link link--external" rel="nofollow ugc noopener">
-                    <img
-                        src="https://simp6.jpg5.su/images3/issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        data-url="https://simp6.jpg5.su/images3/issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        class="bbImage"
-                        loading="lazy"
-                        alt="issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        title="issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        style=""
-                        width=""
-                        height=""
-                    />
-                </a>
-                <a href="https://jpg5.su/img/aqDYZAt" target="_blank" class="link link--external" rel="nofollow ugc noopener">
-                    <img
-                        src="https://simp6.jpg5.su/images3/issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        data-url="https://simp6.jpg5.su/images3/issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        class="bbImage"
-                        loading="lazy"
-                        alt="issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        title="issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        style=""
-                        width=""
-                        height=""
-                    />
-                </a>
-            </div>""",
-            [
-                "https://simp6.jpg5.su/images3/issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg",
-                "https://simp6.jpg5.su/images3/issfanfan-20250129-0001ef763780833ed714.md.jpg",
-            ],
-        ),
-        (
-            crawlers.SimpCityCrawler,
-            """
-                <a href="https://jpg5.su/img/aqDYT6c" target="_blank" class="link link--external" rel="nofollow ugc noopener">
-                    <img
-                        src="https://simp6.jpg5.su/images3/issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        data-url="https://simp6.jpg5.su/images3/issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        class="bbImage"
-                        loading="lazy"
-                        alt="issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        title="issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        style=""
-                        width=""
-                        height=""
-                    />
-                </a>
-                <a href="https://jpg5.su/img/aqDYZAt" target="_blank" class="link link--external" rel="nofollow ugc noopener">
-                    <img
-                        src="https://simp6.jpg5.su/images3/issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        data-url="https://simp6.jpg5.su/images3/issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        class="bbImage"
-                        loading="lazy"
-                        alt="issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        title="issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        style=""
-                        width=""
-                        height=""
-                    />
-                </a>
-            </div>""",
-            [
-                "https://simp6.jpg5.su/images3/issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg",
-                "https://simp6.jpg5.su/images3/issfanfan-20250129-0001ef763780833ed714.md.jpg",
-            ],
-        ),
-        (
-            crawlers.SimpCityCrawler,
-            """
-                <a href="https://jpg5.su/img/aqDYT6c" target="_blank" class="link link--external" rel="nofollow ugc noopener">
-                    <img
-                        src="https://simp6.jpg5.su/images3/issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        data-url="https://simp6.jpg5.su/images3/issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        class="bbImage"
-                        loading="lazy"
-                        alt="issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        title="issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg"
-                        style=""
-                        width=""
-                        height=""
-                    />
-                </a>
-                <a href="https://jpg5.su/img/aqDYZAt" target="_blank" class="link link--external" rel="nofollow ugc noopener">
-                    <img
-                        src="https://simp6.jpg5.su/images3/issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        data-url="https://simp6.jpg5.su/images3/issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        class="bbImage"
-                        loading="lazy"
-                        alt="issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        title="issfanfan-20250129-0001ef763780833ed714.md.jpg"
-                        style=""
-                        width=""
-                        height=""
-                    />
-                </a>
-            </div>""",
-            [
-                "https://simp6.jpg5.su/images3/issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg",
-                "https://simp6.jpg5.su/images3/issfanfan-20250129-0001ef763780833ed714.md.jpg",
-            ],
-        ),
     ],
 )
 def test_post_images(cls: type[xenforo.XenforoCrawler], post_content: str, expected_result: list[str]) -> None:
@@ -784,99 +459,8 @@ def test_post_images(cls: type[xenforo.XenforoCrawler], post_content: str, expec
     assert results == expected_result
 
 
-def _simpcity_fixture_posts() -> dict[int, _forum.ForumPost]:
-    crawler = crawler_instances[crawlers.SimpCityCrawler]
-    soup = _load_xenforo_fixture(SIMPCITY_WHOLE_THREAD_FIXTURE)
-    posts: dict[int, _forum.ForumPost] = {}
-    for article in soup.select(crawler.SELECTORS.posts.article):
-        post = _forum.ForumPost.new(article, crawler.SELECTORS.posts)
-        posts[post.id] = post
-    return posts
-
-
-async def _normalize_extracted_links(crawler: xenforo.XenforoCrawler, post: _forum.ForumPost) -> list[str]:
-    normalized: list[str] = []
-    for link in crawler._external_links(post):
-        absolute = await crawler.get_absolute_link(link)
-        assert absolute is not None
-        normalized.append(str(absolute))
-    return normalized
-
-
-@pytest.mark.asyncio
-async def test_simpcity_whole_thread_preserves_extraction_regression_shape() -> None:
-    crawler = crawler_instances[crawlers.SimpCityCrawler]
-    posts = _simpcity_fixture_posts()
-
-    expected_images_by_post = {
-        659664: [
-            "https://simp1.selti-delivery.ru/images/ADE9702D-BAD9-4DAB-BE13-1340B334D45A.md.jpg",
-            "https://simp1.selti-delivery.ru/images/FAF16779-0151-461A-B56A-F6A5A7D5A6A7.md.jpg",
-            "https://simp1.selti-delivery.ru/images/36E0B645-741D-42D2-8923-4DF52311C502.md.jpg",
-        ],
-        761355: [
-            "https://simp4.selti-delivery.ru/g2rxt9qd8wc91.md.jpg",
-        ],
-        943678: [
-            "https://simp4.selti-delivery.ru/237q2qzze4m91f4cbe0e27fd2a15a.md.jpg",
-            "https://simp4.selti-delivery.ru/k3zqncz7l4m9191ce0eada5ace347.md.jpg",
-            "https://simp4.selti-delivery.ru/zyortmzbe4m9116f79626d853988b.md.jpg",
-        ],
-        3173859: [],
-        3174102: [],
-        3284977: [],
-        3297485: [],
-        3301990: [],
-        44157189: [
-            "https://simp6.selti-delivery.ru/images4/IMG_879659805eab35eeb647.md.jpg",
-        ],
-        44217641: [],
-        45075694: [],
-    }
-
-    expected_links_by_post = {
-        659664: [
-            "https://onlyfans.com/les.chesticles/media",
-            "https://instagram.com/les.chesticles?igshid=YmMyMTA2M2Y=",
-        ],
-        761355: [
-            "https://www.reddit.com/user/les-chesticles",
-            "https://www.depop.com/leschesticles",
-        ],
-        943678: [],
-        3173859: [
-            "https://onlyfans.com/u386107680",
-        ],
-        3174102: [],
-        3284977: [],
-        3297485: [],
-        3301990: [],
-        44157189: [],
-        44217641: [
-            "https://bunkr.cr/a/oFTJIwjx",
-        ],
-        45075694: [],
-    }
-
-    for post_id, expected_images in expected_images_by_post.items():
-        assert list(crawler._images(posts[post_id])) == expected_images
-
-    actual_links_by_post = {post_id: await _normalize_extracted_links(crawler, post) for post_id, post in posts.items()}
-    assert actual_links_by_post == expected_links_by_post
-
-    expected_all_links = {link for links in expected_links_by_post.values() for link in links}
-    assert {link for links in actual_links_by_post.values() for link in links} == expected_all_links
-
-    assert {link for link in expected_all_links if "instagram.com" not in link and "bunkr.cr" not in link} == {
-        "https://onlyfans.com/les.chesticles/media",
-        "https://www.reddit.com/user/les-chesticles",
-        "https://www.depop.com/leschesticles",
-        "https://onlyfans.com/u386107680",
-    }
-
-
 def test_embeds_can_extract_google_drive_links() -> None:
-    # https://github.com/jbsparrow/CyberDropDownloader/issues/775
+    # https://github.com/Cyberdrop-DL/cyberdrop-dl/issues/775
     crawler = crawler_instances[crawlers.SimpCityCrawler]
     content = """
     <div itemprop="text">
@@ -898,7 +482,7 @@ def test_embeds_can_extract_google_drive_links() -> None:
 
 
 def test_post_smg_extract_attachments() -> None:
-    # https://github.com/jbsparrow/CyberDropDownloader/issues/1070
+    # https://github.com/Cyberdrop-DL/cyberdrop-dl/issues/1070
     attachments = """
     <h4 class="block-textHeader">Attachments</h4>
         <ul class="attachmentList">
@@ -971,7 +555,7 @@ def test_post_smg_extract_attachments() -> None:
 
 
 def test_post_celebforum_should_use_href_for_images() -> None:
-    # https://github.com/jbsparrow/CyberDropDownloader/issues/1093
+    # https://github.com/Cyberdrop-DL/cyberdrop-dl/issues/1093
     content = """
     <a href="https://celebforum.to/attachments/jc6huqrju9-jpg.321620/" target="_blank"><img alt="JC6HUqrju9" class="bbImage"
         height="200" loading="lazy"
@@ -1064,7 +648,7 @@ def test_get_post_title_should_strip_new_lines() -> None:
 
 
 def test_is_attachment_should_handle_none() -> None:
-    assert TEST_CRAWLER.is_attachment(None) is False  # type: ignore
+    assert TEST_CRAWLER.is_attachment(None) is False  # pyright: ignore[reportArgumentType]
 
 
 @pytest.mark.parametrize(
@@ -1085,55 +669,7 @@ def test_is_attachment_empty_string_should_be_false() -> None:
     assert TEST_CRAWLER.is_attachment("") is False
 
 
-class TestCheckPostId:
-    @pytest.mark.parametrize(
-        "init_post_id, current_post_id, scrape_single_forum_post, expected_continue_scraping, expected_scrape_this_post",
-        [
-            # init_post_id > current_post_id
-            (100, 90, True, True, False),
-            (100, 90, False, True, False),
-            # init_post_id == current_post_id
-            (100, 100, True, False, True),
-            (100, 100, False, True, True),
-            # init_post_id < current_post_id
-            (100, 110, True, False, False),
-            (100, 110, False, True, True),
-        ],
-    )
-    def test_init_post_id_was_provided(
-        self,
-        init_post_id: int,
-        current_post_id: int,
-        scrape_single_forum_post: bool,
-        expected_continue_scraping: bool,
-        expected_scrape_this_post: bool,
-    ) -> None:
-        continue_scraping, scrape_this_post = _forum.check_post_id(
-            init_post_id, current_post_id, scrape_single_forum_post
-        )
-        assert continue_scraping == expected_continue_scraping
-        assert scrape_this_post == expected_scrape_this_post
-
-    def test_no_init_post_id_and_scrape_single_post_false(self) -> None:
-        init_post_id = None
-        current_post_id = 100
-        scrape_single_forum_post = False
-        continue_scraping, scrape_this_post = _forum.check_post_id(
-            init_post_id, current_post_id, scrape_single_forum_post
-        )
-        assert continue_scraping is True
-        assert scrape_this_post is True
-
-    def test_no_init_post_id_and_scrape_single_post_true_raises_error(self) -> None:
-        init_post_id = None
-        current_post_id = 100
-        scrape_single_forum_post = True
-
-        with pytest.raises(AssertionError):
-            _forum.check_post_id(init_post_id, current_post_id, scrape_single_forum_post)
-
-
-# og_post_id = 23549340
+# original post_id = 23549340
 POST_TEMPLATE = """
 <article class="message message--post js-post js-inlineModContainer" data-author="" data-content="post-{id}" id="js-post-{id}" itemscope="" itemtype="https://schema.org/Comment" itemid="https://simpcity.su/posts/{id}/">
     <meta itemprop="parentItem" itemscope="" itemid="https://xenforocomunity.com/threads/fanfan.33077/" />

@@ -4,19 +4,24 @@ import re
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.mediaprops import Resolution
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.exceptions import ScrapeError
-from cyberdrop_dl.utils import css, json
-from cyberdrop_dl.utils.utilities import error_handling_wrapper, get_text_between
+from cyberdrop_dl.mediaprops import Resolution
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.utils import css, extr_text, json
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     from bs4 import BeautifulSoup
 
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 _find_video_ids = re.compile("/video/(\\d+)").finditer
 
+_CHROME_ANDROID_USER_AGENT: str = (
+    "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.7204.180 Mobile Safari/537.36"
+)
 _HEADERS = {
     "Accept-Language": "en-gb, en;q=0.8",
     "Referer": "https://ok.ru/",
@@ -24,7 +29,7 @@ _HEADERS = {
 }
 
 _MOBILE_HEADERS = _HEADERS | {
-    "User-Agent": "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.7204.180 Mobile Safari/537.36",
+    "User-Agent": _CHROME_ANDROID_USER_AGENT,
     "Referer": "https://m.ok.ru/",
     "Origin": "https://m.ok.ru",
 }
@@ -55,9 +60,12 @@ class OdnoklassnikiCrawler(Crawler):
             "/profile/<username>/c<channel_id>",
         ),
     }
-    PRIMARY_URL = AbsoluteHttpURL("https://ok.ru")
-    DOMAIN = "odnoklassniki"
-    FOLDER_DOMAIN = "ok.ru"
+    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://ok.ru")
+    DOMAIN: ClassVar[str] = "odnoklassniki"
+    FOLDER_DOMAIN: ClassVar[str] = "ok.ru"
+
+    def _prepare_headers(self, scrape_item: ScrapeItem) -> dict[str, str]:
+        return super()._prepare_headers(scrape_item) | _MOBILE_HEADERS
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         match scrape_item.url.parts[1:]:
@@ -71,12 +79,17 @@ class OdnoklassnikiCrawler(Crawler):
                 raise ValueError
 
     @error_handling_wrapper
-    async def channel(self, scrape_item: ScrapeItem, channel_str: str):
+    async def channel(self, scrape_item: ScrapeItem, channel_str: str) -> None:
         soup = await self.request_soup(scrape_item.url, headers=_HEADERS)
 
         channel_id = channel_str.removeprefix("c")
-        gwt_hash = get_text_between(css.select_text(soup, Selector.CHANNEL_HASH), 'gwtHash:"', '",')
-        last_element_id = css.select_one_get_attr_or_none(soup, *Selector.CHANNEL_LAST_ELEMENT)
+        gwt_hash = extr_text(css.select_text(soup, Selector.CHANNEL_HASH), 'gwtHash:"', '",')
+
+        try:
+            last_element_id = css.select(soup, *Selector.CHANNEL_LAST_ELEMENT)
+        except css.SelectorError:
+            last_element_id = None
+
         name = css.select_text(soup, Selector.CHANNEL_NAME)
         scrape_item.setup_as_album(self.create_title(name, channel_id), album_id=channel_id)
 
@@ -122,7 +135,7 @@ class OdnoklassnikiCrawler(Crawler):
                 content = await resp.text()
 
     @error_handling_wrapper
-    async def video(self, scrape_item: ScrapeItem, video_id: str):
+    async def video(self, scrape_item: ScrapeItem, video_id: str) -> None:
         mobile_url = AbsoluteHttpURL(f"https://m.ok.ru/video/{video_id}")
         soup = await self.request_soup(mobile_url, headers=_MOBILE_HEADERS)
 
@@ -135,38 +148,35 @@ class OdnoklassnikiCrawler(Crawler):
         if metadata["movie"].get("is_live"):
             raise ScrapeError(422, "Livestreams are not supported")
 
-        resolution, src = _get_best_src(metadata)
+        resolution, src = max(_parse_sources(metadata))
         cdn_url = self.parse_url(src)
         # downloads may fail if we have cdn cookies
-        self.client.client_manager.cookies.clear_domain(cdn_url.host)
-        json_ld = css.get_json_ld(soup)
+        self.client.cookies.clear_domain(cdn_url.host)
+        json_ld = css.json_ld(soup)
         title: str = metadata["movie"].get("title") or json_ld["name"]
-        scrape_item.possible_datetime = self.parse_iso_date(json_ld["uploadDate"])
+        scrape_item.uploaded_at = self.parse_iso_date(json_ld["uploadDate"])
         filename = self.create_custom_filename(title, ".mp4", file_id=video_id, resolution=resolution)
         await self.handle_file(
             mobile_url, scrape_item, video_id + ".mp4", custom_filename=filename, debrid_link=cdn_url
         )
 
 
-def _get_best_src(metadata: dict[str, Any]) -> tuple[Resolution, str]:
-    def parse():
-        for video in metadata["videos"]:
-            if not video["disallowed"]:
-                resolution = Resolution.parse(
-                    {
-                        "ultra": 2160,
-                        "quad": 1440,
-                        "full": 1080,
-                        "hd": 720,
-                        "sd": 480,
-                        "low": 360,
-                        "lowest": 240,
-                        "mobile": 144,
-                    }[video["name"]]
-                )
-                yield resolution, video["url"]
-
-    return max(parse())
+def _parse_sources(metadata: dict[str, Any]) -> Generator[tuple[Resolution, str]]:
+    for video in metadata["videos"]:
+        if not video["disallowed"]:
+            resolution = Resolution.parse(
+                {
+                    "ultra": 2160,
+                    "quad": 1440,
+                    "full": 1080,
+                    "hd": 720,
+                    "sd": 480,
+                    "low": 360,
+                    "lowest": 240,
+                    "mobile": 144,
+                }[video["name"]]
+            )
+            yield resolution, video["url"]
 
 
 def _check_video_is_available(soup: BeautifulSoup) -> None:

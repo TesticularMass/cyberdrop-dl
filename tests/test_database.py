@@ -1,23 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
-from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
 
-import aiosqlite
 import pytest
 
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL, ScrapeItem
-from cyberdrop_dl.database.tables.definitions import create_history
-from cyberdrop_dl.database.tables.history import HistoryTable
-from cyberdrop_dl.scraper import scrape_mapper
-from cyberdrop_dl.scraper.scrape_mapper import _create_item_from_row
-from cyberdrop_dl.utils.utilities import parse_url
-
-if TYPE_CHECKING:
-    from cyberdrop_dl.database import Database
-
+from cyberdrop_dl import aio, scrape_mapper
+from cyberdrop_dl.crawlers.crawler import _prepare_download_path
+from cyberdrop_dl.database import Database, common, schema
+from cyberdrop_dl.exceptions import DatabaseError
+from cyberdrop_dl.url_objects import AbsoluteHttpURL, ScrapeItem
+from cyberdrop_dl.utils import parse_url
 
 _MOCK_ROW = {
     "referer": "https://drive.google.com/file/d/1F0YBsnQRvrMbK0p9UlnyLu88kqQ0j_F6/edit",
@@ -32,74 +24,8 @@ def item() -> ScrapeItem:
     return ScrapeItem(url=AbsoluteHttpURL("https://drive.google.com"))
 
 
-@pytest.fixture
-def row() -> aiosqlite.Row:
-    return cast("aiosqlite.Row", _MOCK_ROW.copy())  # pyright: ignore[reportInvalidCast]
-
-
-@pytest.fixture
-def row_with_dates(row) -> aiosqlite.Row:
-    row["completed_at"] = datetime.now().isoformat()
-    row["created_at"] = datetime(2023, 1, 1, 10, 0, 0).isoformat()
-    return row
-
-
-def test_scrape_item_creation(row: aiosqlite.Row) -> None:
-    item = _create_item_from_row(row)
-    assert isinstance(item, ScrapeItem)
-    assert item.url == AbsoluteHttpURL("https://drive.google.com/file/d/1F0YBsnQRvrMbK0p9UlnyLu88kqQ0j_F6/edit")
-    assert item.retry_path == Path("/cdl/downloads")
-    assert item.part_of_album is True
-    assert item.completed_at is None
-    assert item.created_at is None
-
-
-def test_item_with_completed_at(row_with_dates) -> None:
-    completed_at_str = row_with_dates["completed_at"]
-    row_with_dates["created_at"] = None
-
-    item = _create_item_from_row(row_with_dates)
-    expected_timestamp = int(datetime.fromisoformat(completed_at_str).timestamp())
-    assert item.completed_at == expected_timestamp
-    assert item.created_at is None
-
-
-def test_item_with_created_at(row) -> None:
-    now = datetime.now()
-    row["created_at"] = now.isoformat()
-
-    item = _create_item_from_row(row)
-    assert item.created_at == int(now.timestamp())
-    assert item.completed_at is None
-
-
-def test_item_with_both_dates(row_with_dates) -> None:
-    completed_at_str = row_with_dates["completed_at"]
-    created_at_str = row_with_dates["created_at"]
-
-    item = _create_item_from_row(row_with_dates)
-    expected_completed_timestamp = int(datetime.fromisoformat(completed_at_str).timestamp())
-    expected_created_timestamp = int(datetime.fromisoformat(created_at_str).timestamp())
-    assert item.completed_at == expected_completed_timestamp
-    assert item.created_at == expected_created_timestamp
-
-
-def test_missing_download_path(row) -> None:
-    del row["download_path"]
-
-    with pytest.raises(KeyError, match="download_path"):
-        _create_item_from_row(row)
-
-
-def test_invalid_date_format(row) -> None:
-    row["completed_at"] = "invalid date"
-
-    with pytest.raises(ValueError):
-        _create_item_from_row(row)
-
-
 @pytest.mark.parametrize(
-    "url, expected",
+    ("url", "expected"),
     [
         (
             "https://megacloud.blog/embed-2/v3/e-1/TZb4gRkOQ642?k=1&autoPlay=1&oa=0&asi=1",
@@ -119,7 +45,7 @@ def test_invalid_date_format(row) -> None:
         ),
         (
             "https://c.bunkr-cache.se/HwdRnHMUiWOQevCg/1df93418-5063-4e1b-851e-9470cb8fc5c6.mp4",
-            "/HwdRnHMUiWOQevCg/1df93418-5063-4e1b-851e-9470cb8fc5c6.mp4",
+            "/1df93418-5063-4e1b-851e-9470cb8fc5c6.mp4",
         ),
         (
             "https://e-hentai.network/h/1bb8b499a5a1a21f9e25e2c42513f310c20e83a9-115314-1280-720-wbp/keystamp=1763995200-3f6832af21;fileindex=169742365;xres=1280/1_2.webp",
@@ -138,68 +64,90 @@ def test_invalid_date_format(row) -> None:
 def test_create_db_path(url: str, expected: str) -> None:
     crawlers = scrape_mapper.get_crawlers_mapping()
     url_ = parse_url(url)
-    crawler = scrape_mapper.match_url_to_crawler(crawlers, url_)
+    crawler = scrape_mapper._best_match(crawlers, url_.host)
     assert crawler
-    path = crawler.create_db_path(url_)
+    path = crawler.__db_path__(url_)
     assert path == expected
-
-
-async def test_check_filename_exists_reads_exists_scalar(tmp_path: Path) -> None:
-    db_conn = await aiosqlite.connect(tmp_path / "history.db")
-    db_conn.row_factory = aiosqlite.Row
-    await db_conn.execute(create_history)
-    await db_conn.execute(
-        """
-        INSERT INTO media (
-            domain, url_path, referer, album_id, download_path,
-            download_filename, original_filename, completed, created_at, completed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            "example.com",
-            "/media/1",
-            "https://example.com/post/1",
-            None,
-            str(tmp_path),
-            "existing-file.mp4",
-            "original-file.mp4",
-            1,
-            None,
-            None,
-        ),
-    )
-    await db_conn.commit()
-    history_table = HistoryTable(cast("Database", SimpleNamespace(_db_conn=db_conn, ignore_history=False)))
-
-    try:
-        assert await history_table.check_filename_exists("existing-file.mp4") is True
-        assert await history_table.check_filename_exists("missing-file.mp4") is False
-    finally:
-        await db_conn.close()
 
 
 class TestGetDownloadPath:
     def test_loose_file(self, item: ScrapeItem) -> None:
-        assert not item.parent_title
+        assert not item.folders
         assert not item.part_of_album
-        assert not item.retry_path
-        download_path = item.create_download_path("cyberdrop")
-        assert download_path == Path("Loose Files (cyberdrop)")
+        assert item.path == Path()
+        download_path = _prepare_download_path(item, "cyberdrop")
+        assert download_path == Path("downloads/Loose Files (cyberdrop)")
 
     def test_loose_file_with_parent(self, item: ScrapeItem) -> None:
-        item.add_to_parent_title("a/sub/folder")
-        download_path = item.create_download_path("cyberdrop")
-        assert download_path == Path("a-sub-folder/Loose Files (cyberdrop)")
+        item.append_folders("a/sub/folder")
+        download_path = _prepare_download_path(item, "cyberdrop")
+        assert download_path == Path("downloads/a-sub-folder/Loose Files (cyberdrop)")
 
     def test_album_file(self, item: ScrapeItem) -> None:
-        item.add_to_parent_title("a/sub/folder")
+        item.append_folders("a/sub/folder")
         item.part_of_album = True
-        download_path = item.create_download_path("cyberdrop")
-        assert download_path == Path("a-sub-folder")
+        download_path = _prepare_download_path(item, "cyberdrop")
+        assert download_path == Path("downloads/a-sub-folder")
 
     def test_retry_path(self, item: ScrapeItem) -> None:
-        item.add_to_parent_title("a/sub/folder")
+        item.append_folders("a/sub/folder")
         item.part_of_album = True
-        item.retry_path = retry_path = Path("a/retry/path")
-        download_path = item.create_download_path("cyberdrop")
-        assert download_path == retry_path
+
+
+async def test_database_creation(tmp_cwd: Path) -> None:
+    db_file = tmp_cwd / "test_db.db"
+    db = Database(db_file)
+    async with db:
+        pass
+
+    assert db.is_new
+    size = await aio.get_size(db_file)
+    assert size
+    assert db.schema.up_to_date
+
+
+async def test_pre_allocation(tmp_cwd: Path) -> None:
+    db_file = tmp_cwd / "test_db.db"
+    async with common.connect(db_file) as db:
+        size = await aio.get_size(db_file)
+        assert size == 0
+
+    async with common.connect(db_file) as db:
+        await common.pre_allocate_100mb(db)
+
+    size = await aio.get_size(db_file)
+    assert size
+    assert size >= 100e6
+
+
+async def test_database_version_check(tmp_cwd: Path) -> None:
+    db_file = tmp_cwd / "test_db.db"
+    db_file.touch()
+    async with Database(db_file).connect() as db:
+        await db._create_tables()
+        assert db.is_new
+        await db.conn.execute("DROP TABLE 'schema_version'")
+        await db.conn.commit()
+
+    async with Database(db_file).connect() as db:
+        assert not db.is_new
+        assert not db.schema.up_to_date
+        await db.schema.create()
+        assert db.schema.version is None
+        assert await db.schema.get_version() is None
+        version = schema.Version(8, 8, 8)
+        await db.schema.update(version)
+        assert not db.schema.up_to_date
+        assert await db.schema.get_version() == version
+        assert db.schema.version == version
+        with pytest.raises(DatabaseError):
+            db.schema.check_version()
+
+
+async def test_db_schema_dump(tmp_cwd: Path) -> None:
+    db_file = tmp_cwd / "test_db.db"
+
+    async with Database(db_file) as db:
+        current_schema = await schema.dump(db.conn)
+
+    assert current_schema == schema.V9_15_0

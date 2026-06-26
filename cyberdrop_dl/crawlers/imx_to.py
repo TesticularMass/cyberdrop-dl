@@ -4,12 +4,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.utils import css
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 class Selector:
@@ -33,7 +33,7 @@ class ImxToCrawler(Crawler):
     PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://imx.to")
     DOMAIN: ClassVar[str] = "imx.to"
 
-    async def async_startup(self) -> None:
+    async def __async_post_init__(self) -> None:
         self.update_cookies({"continue": 1})
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
@@ -55,7 +55,7 @@ class ImxToCrawler(Crawler):
 
     @error_handling_wrapper
     async def image(self, scrape_item: ScrapeItem) -> None:
-        if await self.check_complete_from_referer(scrape_item):
+        if await self.check_complete_from_referer(scrape_item.url):
             return
 
         soup = await self.request_soup(
@@ -64,8 +64,8 @@ class ImxToCrawler(Crawler):
             data={"imgContinue": "Continue+to+image+...+"},
         )
         image = css.select(soup, Selector.IMAGES)
-        name = css.get_attr(image, "alt")
-        link = self.parse_url(css.get_attr(image, "src"))
+        name = css.attr(image, "alt")
+        link = self.parse_url(css.attr(image, "src"))
         filename, ext = self.get_filename_and_ext(name)
         await self.handle_file(link, scrape_item, name, ext, custom_filename=filename)
 
@@ -76,6 +76,5 @@ class ImxToCrawler(Crawler):
         title = self.create_title(name, album_id)
         scrape_item.setup_as_album(title, album_id=album_id)
 
-        results = await self.get_album_results(album_id)
-        for _, new_scrape_item in self.iter_children(scrape_item, soup, Selector.GALLERY_IMAGES, results=results):
+        for new_scrape_item in self.iter_children(scrape_item, soup, Selector.GALLERY_IMAGES):
             self.create_task(self.run(new_scrape_item))

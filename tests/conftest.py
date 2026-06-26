@@ -5,18 +5,15 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from cyberdrop_dl.managers.manager import Manager
-from cyberdrop_dl.scraper import scrape_mapper
+from cyberdrop_dl.config.appdata import AppData, AppDirs
+from cyberdrop_dl.manager import Manager
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+    from collections.abc import AsyncGenerator, Generator
     from pathlib import Path
 
-    class Config(pytest.Config):  # type: ignore
-        test_crawlers_domains: set[str]
 
-
-def pytest_addoption(parser: pytest.Parser):
+def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "--test-crawlers",
         action="store",
@@ -25,13 +22,13 @@ def pytest_addoption(parser: pytest.Parser):
     )
 
 
-def pytest_configure(config: Config):
+def pytest_configure(config: pytest.Config) -> None:
     config.test_crawlers_domains = {
         domain for item in config.getoption("--test-crawlers").split(",") if (domain := item.strip())
     }
 
 
-def pytest_collection_modifyitems(config: Config, items: list[pytest.Item]) -> None:
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """When running with --test-crawlers, disable all other tests"""
     if not config.test_crawlers_domains:
         return
@@ -51,10 +48,11 @@ def pytest_collection_modifyitems(config: Config, items: list[pytest.Item]) -> N
         items[:] = selected_tests
 
 
-@pytest.fixture
-def tmp_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.chdir(tmp_path)
-    return tmp_path
+@pytest.fixture(autouse=True)
+def tmp_cwd(tmp_path: Path) -> Generator[Path]:
+    with pytest.MonkeyPatch.context() as m:
+        m.chdir(tmp_path)
+        yield tmp_path
 
 
 @pytest.fixture
@@ -63,23 +61,18 @@ async def logs(caplog: pytest.LogCaptureFixture) -> pytest.LogCaptureFixture:
     return caplog
 
 
-@pytest.fixture(scope="function", name="manager")
-def post_startup_manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Manager:
-    appdata = str(tmp_path)
-    downloads = str(tmp_path / "Downloads")
-    monkeypatch.chdir(tmp_path)
-    bare_manager = Manager(("--appdata-folder", appdata, "-d", downloads, "--download-tiktok-audios"))
-    bare_manager.startup()
-    bare_manager.path_manager.startup()
-    bare_manager.log_manager.startup()
-    return bare_manager
+@pytest.fixture
+def appdata(tmp_cwd: Path) -> AppData:
+    return AppData.from_dirs(AppDirs.from_path(tmp_cwd / "pytest_appdata"))
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
+def manager(appdata: AppData) -> Generator[Manager]:
+    with Manager(appdata=appdata)() as manager:
+        yield manager
+
+
+@pytest.fixture
 async def running_manager(manager: Manager) -> AsyncGenerator[Manager]:
-    scrape_mapper.existing_crawlers.clear()
-    await manager.async_startup()
-    manager.states.RUNNING.set()
-    yield manager
-    manager.states.RUNNING.clear()
-    await manager.close()
+    async with manager.database:
+        yield manager

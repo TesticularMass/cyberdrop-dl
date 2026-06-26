@@ -1,22 +1,16 @@
 from __future__ import annotations
 
-import functools
+import dataclasses
+import html
 import json
-from typing import TYPE_CHECKING, Any, NamedTuple, ParamSpec, TypeVar, overload
-
-import bs4.css
-from bs4 import BeautifulSoup
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast, overload
 
 from cyberdrop_dl.exceptions import ScrapeError
-from cyberdrop_dl.utils.logger import log_debug
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator
+    from collections.abc import Generator
 
     from bs4.element import Tag
-
-    _P = ParamSpec("_P")
-    _R = TypeVar("_R")
 
 
 class SelectorError(ScrapeError):
@@ -31,58 +25,71 @@ class CssAttributeSelector(NamedTuple):
     def __call__(self, soup: Tag) -> str:
         return select(soup, self.element, self.attribute)
 
-
-def not_none[**P, R](func: Callable[_P, _R | None]) -> Callable[_P, _R]:
-    @functools.wraps(func)
-    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
-        result = func(*args, **kwargs)
-        if result is None:
-            raise SelectorError
-        return result
-
-    return wrapper
+    def text(self, tag: Tag) -> str:
+        return select_text(tag, self.element)
 
 
-@not_none
-def _select_one(tag: Tag, selector: str) -> Tag | None:
+@dataclasses.dataclass(slots=True)
+class HTMLForm:
+    method: str
+    action: str
+    inputs: dict[str, str | None]
+
+
+class JsonLD(dict[str, Any]):
+    @overload
+    def __getitem__(self, key: Literal["uploadDate"], /) -> str: ...  # pyright: ignore[reportNoOverloadImplementation]
+
+    @overload
+    def __getitem__(self, key: str, /) -> Any:
+        """Return self[key]."""
+
+    __getitem__ = dict.__getitem__
+
+
+def _select_one(tag: Tag, selector: str) -> Tag:
     """Same as `tag.select_one` but asserts the result is not `None`"""
-    return tag.select_one(selector)
+    result = tag.select_one(selector)
+    if result is None:
+        raise SelectorError(f"{selector} tag not found")
+    return result
 
 
-def select_text(tag: Tag, selector: str, strip: bool = True, *, decompose: str | None = None) -> str:
+def select_text(tag: Tag, selector: str, *, strip: bool = True, decompose: str | None = None) -> str:
     """Same as `tag.select_one.get_text(strip=strip)` but asserts the result is not `None`"""
     inner_tag = select(tag, selector)
     if decompose:
-        for trash in iselect(inner_tag, decompose):
+        for trash in inner_tag.select(decompose):
             trash.decompose()
-    return get_text(inner_tag, strip)
+    return text(inner_tag, strip=strip)
 
 
-def get_attr_or_none(tag: Tag, attribute: str) -> str | None:
+def attr_or_none(tag: Tag, attribute: str) -> str | None:
     """Same as `tag.get(attribute)` but asserts the result is a single str"""
     attribute_ = attribute
     if attribute_ == "srcset":
-        if (srcset := tag.get(attribute_)) and isinstance(srcset, str):
+        if (srcset := tag.get(attribute_)) and type(srcset) is str:
             return _parse_srcset(srcset)
         attribute_ = "src"
 
-    if attribute_ == "src":
-        value = tag.get("data-src") or tag.get(attribute_)
-    else:
-        value = tag.get(attribute_)
-    if isinstance(value, list):
+    value = tag.get("data-src") or tag.get(attribute_) if attribute_ == "src" else tag.get(attribute_)
+    if value is None:
+        return None
+    if type(value) is not str:
         raise SelectorError(f"Expected a single value for {attribute = !r}, got multiple")
     return value
 
 
-def get_text(tag: Tag, strip: bool = True) -> str:
-    return tag.get_text(strip=strip)
-
-
-@not_none
-def get_attr(tag: Tag, attribute: str) -> str | None:
+def attr(tag: Tag, attribute: str) -> str:
     """Same as `tag.get(attribute)` but asserts the result is not `None` and is a single string"""
-    return get_attr_or_none(tag, attribute)
+    result = attr_or_none(tag, attribute)
+    if result is None:
+        raise SelectorError(f"{attribute = } not found")
+    return result
+
+
+def text(tag: Tag, *, strip: bool = True) -> str:
+    return tag.get_text(strip=strip)
 
 
 @overload
@@ -97,12 +104,7 @@ def select(tag: Tag, selector: str, attribute: str | None = None) -> Tag | str:
     inner_tag = _select_one(tag, selector)
     if not attribute:
         return inner_tag
-    return get_attr(inner_tag, attribute)
-
-
-def select_one_get_attr_or_none(tag: Tag, selector: str, attribute: str) -> str | None:
-    if inner_tag := tag.select_one(selector):
-        return get_attr_or_none(inner_tag, attribute)
+    return attr(inner_tag, attribute)
 
 
 @overload
@@ -115,13 +117,13 @@ def iselect(tag: Tag, selector: str, attribute: str) -> Generator[str]: ...
 
 def iselect(tag: Tag, selector: str, attribute: str | None = None) -> Generator[Tag] | Generator[str]:
     """Same as `tag.select(selector)`, but it returns a generator instead of a list."""
-    tags = bs4.css.CSS(tag).iselect(selector)
+    tags = tag.css.iselect(selector)
     if not attribute:
         yield from tags
 
     else:
         for inner_tag in tags:
-            if attr := get_attr_or_none(inner_tag, attribute):
+            if attr := attr_or_none(inner_tag, attribute):
                 yield attr
 
 
@@ -135,113 +137,75 @@ def decompose(tag: Tag, selector: str) -> None:
         inner_tag.decompose()
 
 
-def sanitize_page_title(title: str, domain: str) -> str:
-    sld = domain.rsplit(".", 1)[0].casefold()
+def rstrip_domain(title: str, domain: str) -> str:
+    assert domain
+    second_level_domain = domain.rsplit(".", 1)[0].casefold().removeprefix("www.")
 
-    def clean(string: str, char: str):
-        if char in string:
-            front, _, tail = string.rpartition(char)
-            if sld in tail.casefold():
-                string = front.strip()
+    def sanitize(string: str, char: str) -> str:
+        front, _, tail = string.rpartition(char)
+        if front and second_level_domain in tail.casefold():
+            return front.strip()
         return string
 
-    return clean(clean(title, "|"), " - ")
+    for char in sorted(("|", " - "), key=title.rfind, reverse=True):
+        title = sanitize(title, char)
+
+    return title
 
 
 def page_title(soup: Tag, domain: str | None = None) -> str:
     title = select_text(soup, "title")
     if domain:
-        return sanitize_page_title(title, domain)
+        return rstrip_domain(title, domain)
     return title
 
 
-def get_json_ld_date(soup: Tag) -> str:
-    return get_json_ld(soup)["uploadDate"]
+def json_ld(soup: Tag, /, contains: str | None = None) -> JsonLD:
+    try:
+        ld_json = next(iter_json_ld(soup, contains)) or {}
+    except StopIteration:
+        details = f" (-contains:'{contains}')" if contains else ""
+        raise SelectorError(f"ld-json tag{details} not found") from None
+    if type(ld_json) is list:
+        ld_json = ld_json[0]
+
+    return cast("JsonLD", ld_json)
 
 
-def get_json_ld(soup: Tag, /, contains: str | None = None) -> dict[str, Any]:
-    selector = "script[type='application/ld+json']"
-    if contains:
-        selector += f":-soup-contains('{contains}')"
-
-    ld_json = json.loads(select_text(soup, selector)) or {}
-    if isinstance(ld_json, list):
-        return ld_json[0]
-
-    return ld_json
+def iter_json_ld(soup: Tag, /, contains: str | None = None) -> Generator[Any]:
+    return _iter_json(soup, "script[type='application/ld+json']", contains=contains)
 
 
-def get_nuxt_data(soup: Tag) -> list[Any]:
-    return json.loads(select_text(soup, "script#__NUXT_DATA__"))
+def iter_json(soup: Tag, /, contains: str | None = None) -> Generator[Any]:
+    return _iter_json(soup, "script[type='application/ld+json'], script[type='application/json']", contains=contains)
 
 
-def parse_nuxt_obj(nuxt_data: list[Any], *attributes: str) -> dict[str, Any]:
-    """Parses a single object from a NUXT rich JSON payload response (__NUXT_DATA__)
-
-    It iterates over each object until it finds an object with the desired attributes"""
-    if obj := next(parse_nuxt_objs(nuxt_data, *attributes), None):
-        return obj
-    raise SelectorError(f"Unable to find object with {attributes = } in NUXT_DATA")
-
-
-def parse_nuxt_objs(nuxt_data: list[Any], *attributes: str) -> Generator[dict[str, Any]]:
-    """
-    Iterates over each object from a NUXT rich JSON payload response (__NUXT_DATA__)
-
-    It bypasses the devalue parsing logic by ignoring objects without the desired attributes
-
-    https://github.com/nuxt/nuxt/discussions/20879
-    """
-    assert attributes
-    first_key = attributes[0]
-    objects = (obj for obj in nuxt_data if isinstance(obj, dict) and all(key in obj for key in attributes))
-    for obj in objects:
-        try:
-            index: int = obj[first_key]
-            index_map: dict[str, int] = nuxt_data[index]
-            assert isinstance(index_map, dict)
-        except (LookupError, AssertionError):
-            index_map = obj
-
-        yield _parse_nuxt_obj(nuxt_data, index_map)
+def _iter_json(
+    soup: Tag,
+    /,
+    selector: str,
+    *,
+    contains: str | None = None,
+) -> Generator[Any]:
+    for tag in iselect(soup, selector):
+        content = text(tag)
+        if contains and contains not in content:
+            continue
+        yield json.loads(content)
 
 
-def _parse_nuxt_obj(nuxt_data: list[Any], index_map: dict[str, int]) -> dict[str, Any]:
-    def hydrate(value: Any) -> Any:
-        if isinstance(value, list):
-            match value:
-                case ["BigInt", val]:
-                    return int(val)
-                case ["Date" | "Object" | "RegExp", val, *_]:
-                    return val
-                case ["Set", *values]:
-                    return [hydrate(nuxt_data[idx]) for idx in values]
-                case ["Map", *values]:
-                    return hydrate(dict(zip(*(iter(values),) * 2, strict=True)))
-                case ["ShallowRef" | "ShallowReactive" | "Ref" | "Reactive" | "NuxtError", idx]:
-                    return hydrate(nuxt_data[idx])
-                case [str(name), *rest]:
-                    log_debug(f"Unable to parse custom object {name} {rest}", 30)
-                    return None
-                case _:
-                    return [hydrate(nuxt_data[idx]) for idx in value]
+def parse_form(form: Tag, /) -> HTMLForm:
+    inputs: dict[str, str | None] = {}
+    for elem in iselect(form, "input"):
+        name = attr_or_none(elem, "name") or attr(elem, "id")
+        inputs[name] = attr_or_none(elem, "value")
 
-        if isinstance(value, dict):
-            return _parse_nuxt_obj(nuxt_data, value)
-
-        return value
-
-    return {name: hydrate(nuxt_data[idx]) for name, idx in index_map.items()}
+    method = attr(form, "method").upper()
+    action = attr(form, "action")
+    return HTMLForm(method, action, inputs)
 
 
-def unescape(html: str) -> str:
-    return make_soup(html).get_text()
-
-
-def make_soup(html: str) -> BeautifulSoup:
-    return BeautifulSoup(html, "html.parser")
-
-
+unescape = html.unescape
 iframes = CssAttributeSelector("iframe", "src")
 images = CssAttributeSelector("img", "srcset")
 links = CssAttributeSelector(":any-link", "href")

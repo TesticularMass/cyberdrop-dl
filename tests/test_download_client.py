@@ -1,43 +1,48 @@
-from typing import cast
-
 import pytest
+from multidict import CIMultiDict
 
-from cyberdrop_dl.clients import download_client
-from cyberdrop_dl.data_structures import MediaItem
-
-
-def _item(fallbacks_: object) -> MediaItem:
-    class Item:
-        fallbacks = fallbacks_
-
-    return cast("MediaItem", Item)  # pyright: ignore[reportInvalidCast]
+from cyberdrop_dl.clients.downloads import DownloadClient, _check_content_type, _get_content_type
+from cyberdrop_dl.exceptions import InvalidContentTypeError
+from cyberdrop_dl.manager import Manager
 
 
-def test_fallback_generator_with_none() -> None:
-    item = _item(None)
-    gen = download_client._fallback_generator(item)
-    with pytest.raises(StopIteration):
-        _ = gen.send(None)
+@pytest.mark.parametrize(
+    "limit",
+    [
+        (5_000_000,),
+        (500_000_000,),
+    ],
+)
+def test_chunk_size_is_never_greater_that_speed_limit(manager: Manager, limit: int) -> None:
+    max_expected = 1024 * 1024 * 10
+    limit = manager.config.downloads.speed_limit
+    assert limit == 0
+    client = DownloadClient(manager)
+    assert client.chunk_size != limit
+    assert client.chunk_size == max_expected
+
+    manager.config.downloads.speed_limit = limit
+    client = DownloadClient(manager)
+    assert client.chunk_size == min(limit or max_expected, max_expected)
 
 
-def test_fallback_generator_with_list() -> None:
-    item = _item(["url1", "url2", "url3"])
-    gen = download_client._fallback_generator(item)
-    assert gen.__next__() == "url1"
-    assert gen.__next__() == "url2"
-    assert gen.send(12345) == "url3"
-    with pytest.raises(StopIteration):
-        _ = gen.send(None)
+def test_get_content_type() -> None:
+    def get(value: str) -> str:
+        content_type = _get_content_type(CIMultiDict({"content-type": value}))
+        assert content_type
+        return content_type
+
+    assert get("text/vnd.trolltech.linguist") == "video/MP2T"
+    assert get("text/HTML") == "text/HTML"
+    assert get("application/json") == "application/json"
 
 
-def test_fallback_generator_with_generator() -> None:
-    def _fallback_gen(resp: object, retry: object):
-        return retry
+def test_check_content_type() -> None:
+    _check_content_type("text/html", ".txt")
 
-    item = _item(_fallback_gen)
-    gen = download_client._fallback_generator(item)
+    with pytest.raises(InvalidContentTypeError, match="Received 'text/html', was expecting binary payload"):
+        _check_content_type("text/html", ".mp4")
 
-    assert gen.send(12345) == 1
-    assert gen.send(12345) == 2
-    with pytest.raises(StopIteration):
-        _ = gen.send(None)
+
+def test_get_content_type_missing_headers() -> None:
+    assert _get_content_type({}) is None

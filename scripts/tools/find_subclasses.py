@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from rich import print as rich_print
+import rich
 from rich.table import Table
 
 from cyberdrop_dl.progress import hyperlink
@@ -15,11 +15,10 @@ if TYPE_CHECKING:
 
 
 def find_subclasses_of(domain: str):
-    from cyberdrop_dl.crawlers.crawler import Registry
+    from cyberdrop_dl.crawlers import Registry
 
-    Registry.import_all()
+    crawlers = tuple(Registry.get_crawlers(generic=True, abc=True))
 
-    crawlers = tuple(Registry.abc | Registry.generic | Registry.concrete)
     if domain.endswith("Crawler"):
         target = next(c for c in crawlers if c.__name__ == domain)
     else:
@@ -30,7 +29,8 @@ def find_subclasses_of(domain: str):
 
 def module_path(cls: type):
     spec = importlib.util.find_spec(cls.__module__)
-    assert spec and spec.origin
+    assert spec
+    assert spec.origin
     return hyperlink(Path(spec.origin))
 
 
@@ -53,4 +53,4 @@ if __name__ == "__main__":
     domain = sys.argv[1]
     subclasses = find_subclasses_of(domain)
     table = make_table(subclasses)
-    rich_print(table)
+    rich.print(table)

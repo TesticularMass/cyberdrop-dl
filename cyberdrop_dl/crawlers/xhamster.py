@@ -5,17 +5,18 @@ import codecs
 import dataclasses
 import itertools
 import json
+from enum import IntEnum
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from cyberdrop_dl.compat import IntEnum
-from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.mediaprops import Resolution
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.crawlers.crawler import Crawler, RateLimit, SupportedPaths
 from cyberdrop_dl.exceptions import ScrapeError
-from cyberdrop_dl.utils.utilities import error_handling_wrapper, get_text_between, parse_url, xor_decrypt
+from cyberdrop_dl.mediaprops import Resolution
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.utils import extr_text, parse_url, xor_decrypt
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Generator, Iterable
 
     from cyberdrop_dl.data_structures.url_objects import ScrapeItem
 
@@ -31,7 +32,7 @@ class Selector:
 
 
 def _decrypt_url(raw_url: str) -> str | None:
-    if raw_url.startswith("http") or raw_url.startswith("/"):
+    if raw_url.startswith(("http", "/")):
         hex_string = AbsoluteHttpURL(raw_url).parts[1].partition(",")[0]
         decoded = _decrypt_url(hex_string)
         if decoded:
@@ -72,11 +73,11 @@ class XhamsterCrawler(Crawler):
         "Creator Galleries": "/creators/<creator_name>/photos",
         "Gallery": "/photos/gallery/<gallery_name_or_id>",
     }
-    PRIMARY_URL = _PRIMARY_URL
-    NEXT_PAGE_SELECTOR = Selector.NEXT_PAGE
-    DOMAIN = "xhamster"
-    FOLDER_DOMAIN = "xHamster"
-    _RATE_LIMIT = 4, 1
+    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = _PRIMARY_URL
+    NEXT_PAGE_SELECTOR: ClassVar[str] = Selector.NEXT_PAGE
+    DOMAIN: ClassVar[str] = "xhamster"
+    FOLDER_DOMAIN: ClassVar[str] = "xHamster"
+    _RATE_LIMIT: ClassVar[RateLimit] = 4, 1
 
     def __post_init__(self) -> None:
         self._seen_hosts: set[str] = set()
@@ -160,7 +161,8 @@ class XhamsterCrawler(Crawler):
         self, scrape_item: ScrapeItem, url: AbsoluteHttpURL, selector: str, name: str
     ) -> None:
         async for soup in self.web_pager(url):
-            for _, new_scrape_item in self.iter_children(scrape_item, soup, selector, new_title_part=name):
+            for new_scrape_item in self.iter_children(scrape_item, soup, selector):
+                new_scrape_item.append_folders(name)
                 self.create_task(self.run(new_scrape_item))
 
     @error_handling_wrapper
@@ -190,7 +192,7 @@ class XhamsterCrawler(Crawler):
             initials = await self._get_window_initials(next_page_url)
             images = initials["photosGalleryModel"]["photos"]
 
-    def _handle_img(self, scrape_item: ScrapeItem, img: dict[str, Any], results: dict[str, int]):
+    def _handle_img(self, scrape_item: ScrapeItem, img: dict[str, Any], results: dict[str, bool]) -> None:
         src, page_url = self.parse_url(img["imageURL"]), self.parse_url(img["pageURL"])
         if self.check_album_results(src, results):
             return
@@ -204,7 +206,7 @@ class XhamsterCrawler(Crawler):
 
     @error_handling_wrapper
     async def video(self, scrape_item: ScrapeItem) -> None:
-        if await self.check_complete_from_referer(scrape_item):
+        if await self.check_complete_from_referer(scrape_item.url):
             return
 
         initials = await self._get_window_initials(scrape_item.url)
@@ -240,7 +242,7 @@ class XhamsterCrawler(Crawler):
         await self.handle_file(
             scrape_item.url,
             scrape_item,
-            filename=video.id + ".mp4",
+            video.id + ".mp4",
             custom_filename=custom_filename,
             m3u8=hls,
         )
@@ -248,7 +250,7 @@ class XhamsterCrawler(Crawler):
     async def _get_window_initials(self, url: AbsoluteHttpURL) -> dict[str, Any]:
         self._disable_ai_title_translations(url)
         content = await self.request_text(url)
-        initials = get_text_between(content, "window.initials=", ";</script>")
+        initials = extr_text(content, "window.initials=", ";</script>")
         return json.loads(initials)
 
 
@@ -295,14 +297,14 @@ def _parse_video(initials: dict[str, Any]) -> Video:
     )
 
 
-def _parse_xplayer_sources(initials: dict[str, Any]) -> Iterable[Format]:
+def _parse_xplayer_sources(initials: dict[str, Any]) -> Iterable[Format]:  # noqa: C901
     xplayer_sources: dict[str, Any] = initials.get("xplayerSettings2", {}).get("sources", {})
     if not xplayer_sources:
         return
 
     seen_urls: set[AbsoluteHttpURL] = set()
 
-    def parse_format(format_dict: dict[str, str], codec: str):
+    def parse_format(format_dict: dict[str, str], codec: str) -> Generator[Format]:
         for key in ("url",):
             url = format_dict.get(key)
             if not url:
@@ -341,7 +343,7 @@ def _ensure_signed_32int(int32: int) -> int:
     return unsigned_32_bit
 
 
-def _make_decoder(algo: int, seed: int) -> Callable[[], int]:
+def _make_decoder(algo: int, seed: int) -> Callable[[], int]:  # noqa: C901, PLR0915
     current_step = seed
     if algo == 1:
 
@@ -355,7 +357,7 @@ def _make_decoder(algo: int, seed: int) -> Callable[[], int]:
         def decode_next() -> int:
             nonlocal current_step
 
-            current_step = current_step & 0xFFFFFFFF
+            current_step &= 0xFFFFFFFF
             current_step ^= (current_step << 13) & 0xFFFFFFFF
             current_step ^= (current_step >> 17) & 0xFFFFFFFF
             current_step ^= (current_step << 5) & 0xFFFFFFFF
@@ -418,8 +420,7 @@ def _make_decoder(algo: int, seed: int) -> Callable[[], int]:
             val = _ensure_signed_32int(current_step ^ (current_step << 5))
             val = _ensure_signed_32int(val * _ensure_signed_32int(0x7FEB352D))
             val = _ensure_signed_32int(val ^ ((val & 0xFFFFFFFF) >> 15))
-            val = _ensure_signed_32int(val * _ensure_signed_32int(0x846CA68B))
-            return val
+            return _ensure_signed_32int(val * _ensure_signed_32int(0x846CA68B))
 
     else:
         raise ValueError(f"Unknown crypto algo: {algo}")
@@ -430,9 +431,10 @@ def _make_decoder(algo: int, seed: int) -> Callable[[], int]:
 def _is_hex(hex_string: str) -> bool:
     try:
         int(hex_string, 16)
-        return True
     except ValueError:
         return False
+    else:
+        return True
 
 
 def _decode_hex_url(encrypted_url: str) -> str:

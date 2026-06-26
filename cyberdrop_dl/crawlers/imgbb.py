@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final
+from typing import TYPE_CHECKING, ClassVar, Final, override
 
 from cyberdrop_dl.crawlers._chevereto import CheveretoCrawler
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
 
 if TYPE_CHECKING:
     from cyberdrop_dl.crawlers.crawler import SupportedDomains, SupportedPaths
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 IMAGES_CDN: Final = "i.ibb.co"
@@ -23,7 +23,13 @@ class ImgBBCrawler(CheveretoCrawler):
     PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://ibb.co")
     DOMAIN: ClassVar[str] = "imgbb"
     FOLDER_DOMAIN: ClassVar[str] = "ImgBB"
-    SKIP_PRE_CHECK: ClassVar[bool] = True
+    ALLOW_EMPTY_PATH: ClassVar[bool] = True
+
+    @override
+    async def _get_final_album_url(self, url: AbsoluteHttpURL) -> AbsoluteHttpURL:
+        # Disable chevereto redirect
+        # https://github.com/Cyberdrop-DL/cyberdrop-dl/issues/1738
+        return url
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         username, _, rest = scrape_item.url.host.partition(".imgbb.")

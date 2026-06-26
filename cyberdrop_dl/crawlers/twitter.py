@@ -3,17 +3,17 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 _API_URL = AbsoluteHttpURL("https://api.fxtwitter.com")
 
 
-class TwitterCrawler(Crawler):
+class TwitterCrawler(Crawler, is_debug=True):
     SUPPORTED_PATHS: ClassVar[SupportedPaths] = {
         "Tweet": "/<handle>/status/<tweet_id>",
     }
@@ -37,11 +37,11 @@ class TwitterCrawler(Crawler):
     async def tweet(self, scrape_item: ScrapeItem) -> None:
         url = _API_URL / scrape_item.url.path.removeprefix("/")
         tweet: dict[str, Any] = (await self.request_json(url))["tweet"]
-        scrape_item.possible_datetime = tweet["created_timestamp"]
+        scrape_item.uploaded_at = tweet["created_timestamp"]
         name = tweet["author"]["screen_name"]
-        post_title = self.create_separate_post_title(None, tweet["id"], scrape_item.possible_datetime)
+        post_title = self.create_separate_post_title(None, tweet["id"], scrape_item.uploaded_at)
         scrape_item.setup_as_profile(self.create_title(f"@{name}"))
-        scrape_item.add_to_parent_title(post_title)
+        scrape_item.append_folders(post_title)
 
         await self.write_metadata(scrape_item, tweet["id"], tweet)
 

@@ -1,6 +1,7 @@
 ---
 description: These are limiting options for the program
 ---
+
 # Rate Limiting Options
 
 ## `connection_timeout`
@@ -48,43 +49,13 @@ This setting specifies speed and it's interpreted as `<value> / second`. ex: `8M
 
 This is the max rate of downloading in bytes (per second) for all downloads combined. Set to `0` to disable
 
-## `file_host_cache_expire_after`
+## `concurrent_segments`
 
-| Type                        | Default  |
-| --------------------------- | -------- |
-| `timedelta`, `str` or `int` | `7 days` |
+| Type          | Default |
+| ------------- | ------- |
+| `PositiveInt` | `10`    |
 
-Cyberdrop-DL caches the requests made to any website. This setting controls how long responses to file host websites are stored before expiring.
-
-- A `timedelta` input is expected to be a valid ISO 8601 timespan, ex: `P10DT2H30M10S`
-
-- An `int` input is assumed to be the number of days
-
-- A  `str` input is expected to be in the format; `<value> <unit>`, ex: `10 days`.
-
-### Valid `str` units
-
-- `year(s)`
-- `month(s)`
-- `week(s)`
-- `day(s)`
-- `hour(s)`
-- `minute(s)`
-- `second(s)`
-- `millisecond(s)`
-- `microsecond(s)`
-
-{% hint style="info" %}
-You can set the value to `0` to disable caching
-{% endhint %}
-
-## `forum_cache_expire_after`
-
-| Type                        | Default   |
-| --------------------------- | --------- |
-| `timedelta`, `str` or `int` | `4 weeks` |
-
-Same as `file_host_cache_expire_after` but applied to forums requests.
+Allow up to `<N>` HLS segments to be downloaded concurrently.
 
 ## `jitter`
 
@@ -123,10 +94,10 @@ Some domains have internal limits set by the program, which can not be modified:
 
 | Type            | Default |
 | --------------- | ------- |
-| `PositiveFloat` | `50.0`  |
+| `PositiveFloat` | `25.0`  |
 
 {% hint style="info" %}
-This setting specifies speed and it's interpreted as `<value> / second`. ex: `50` means `50 requests / second`
+This setting specifies speed and it's interpreted as `<value> / second`. ex: `25` means `25 requests / second`
 {% endhint %}
 
 This is the maximum number of requests that can be made by the program per second.

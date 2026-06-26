@@ -2,31 +2,33 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar
 
-from cyberdrop_dl.constants import FILE_FORMATS
+from cyberdrop_dl.constants import FileExt
 from cyberdrop_dl.crawlers.crawler import Crawler
+from cyberdrop_dl.downloader.http import Downloader
 from cyberdrop_dl.exceptions import NoExtensionError
-from cyberdrop_dl.utils.utilities import get_filename_and_ext
+from cyberdrop_dl.filepath import get_filename_and_ext
 
 if TYPE_CHECKING:
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
-MEDIA_EXTENSIONS = FILE_FORMATS["Images"] | FILE_FORMATS["Videos"] | FILE_FORMATS["Audio"]
-
-
-class DirectHttpFile(Crawler, is_generic=True):
+class DirectHttpFileCrawler(Crawler, is_generic=True):
     DOMAIN: ClassVar[str] = "no_crawler"
+
+    async def __async_post_init__(self) -> None:
+        self.downloader = Downloader(self.manager)
+        self.downloader.log_prefix = "Download attempt (unsupported domain)"
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         try:
             filename, ext = get_filename_and_ext(scrape_item.url.name)
         except NoExtensionError:
-            filename, ext = get_filename_and_ext(scrape_item.url.name, forum=True)
+            filename, ext = get_filename_and_ext(scrape_item.url.name, xenforo=True)
 
-        if ext not in MEDIA_EXTENSIONS:
+        if ext not in FileExt.MEDIA:
             raise ValueError
 
-        scrape_item.add_to_parent_title("Loose Files")
+        scrape_item.append_folders("Loose Files")
         scrape_item.part_of_album = True
         await self.handle_file(
             scrape_item.url,

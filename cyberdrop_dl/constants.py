@@ -1,59 +1,35 @@
-import re
-from dataclasses import field
-from datetime import UTC, datetime
-from enum import auto
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final
+from __future__ import annotations
 
-from aiohttp.resolver import AsyncResolver, ThreadedResolver
+import datetime
+from contextvars import ContextVar
+from enum import Enum, StrEnum, auto
+from typing import TYPE_CHECKING, final
+
 from rich.text import Text
+from typing_extensions import Sentinel
 
-from cyberdrop_dl import env
-from cyberdrop_dl.compat import Enum, StrEnum
+from cyberdrop_dl import __version__, env
 
 if TYPE_CHECKING:
-    from cyberdrop_dl.utils.logger import LogHandler
+    from pathlib import Path
 
-# TIME
-STARTUP_TIME = datetime.now()
-STARTUP_TIME_UTC = datetime.now(UTC)
+STARTUP_TIME_UTC = datetime.datetime.now(datetime.UTC)
 LOGS_DATETIME_FORMAT = "%Y%m%d_%H%M%S"
 LOGS_DATE_FORMAT = "%Y_%m_%d"
-STARTUP_TIME_STR = STARTUP_TIME.strftime(LOGS_DATETIME_FORMAT)
-STARTUP_TIME_UTC_STR = STARTUP_TIME_UTC.strftime(LOGS_DATETIME_FORMAT)
-DNS_RESOLVER: type[AsyncResolver] | type[ThreadedResolver] | None = None
-MAX_REDIRECTS: Final[int] = 8
+STARTUP_TIME_STR = datetime.datetime.now().strftime(LOGS_DATETIME_FORMAT)  # noqa: DTZ005
+CDL_USER_AGENT = f"cyberdrop-dl/{__version__}"
+MISSING = Sentinel("MISSING")
+
+MAIN_LOG_FILE: ContextVar[Path] = ContextVar("MAIN_LOG_FILE")
 
 
-# logging
-CONSOLE_LEVEL = 100
-MAX_NAME_LENGTHS = {"FILE": 95, "FOLDER": 60}
-DEFAULT_CONSOLE_WIDTH = 240
-CSV_DELIMITER = ","
-LOG_OUTPUT_TEXT = Text("")
-RICH_HANDLER_CONFIG: dict[str, Any] = {"rich_tracebacks": True, "tracebacks_show_locals": False}
-RICH_HANDLER_DEBUG_CONFIG = RICH_HANDLER_CONFIG | {
-    "tracebacks_show_locals": True,
-    "locals_max_string": DEFAULT_CONSOLE_WIDTH,
-    "tracebacks_extra_lines": 2,
-    "locals_max_length": 20,
-}
-VALIDATION_ERROR_FOOTER = """Please delete the file or fix the errors. Read the documentation to learn what's the expected format and values: https://script-ware.gitbook.io/cyberdrop-dl/reference/configuration-options
-\nThis is not a bug. Do not open issues related to this"""
-
-
-CLI_VALIDATION_ERROR_FOOTER = """Please read the documentation to learn about the expected values: https://script-ware.gitbook.io/cyberdrop-dl/reference/configuration-options
-\nThis is not a bug. Do not open issues related to this"""
-
-# regex
-RAR_MULTIPART_PATTERN = re.compile(r"^part\d+")
-SANITIZE_FILENAME_PATTERN = re.compile(r'[<>:"/\\|?*\']')
-REGEX_LINKS = re.compile(r"(?:http.*?)(?=($|\n|\r\n|\r|\s|\"|\[/URL]|']\[|]\[|\[/img]))")
-HTTP_REGEX_LINKS = re.compile(
-    r"https?://(www\.)?[-a-zA-Z0-9@:%._+~#=]{2,256}\.[a-z]{2,12}\b"
-    r"(?:[-a-zA-Z0-9@:%_+.~#?&,/=]*[-a-zA-Z0-9@:%_+.~#?&/=])?"
-)
-console_handler: "LogHandler"
+class CIStrEnum(StrEnum):
+    @classmethod
+    def _missing_(cls, value: object) -> CIStrEnum | None:
+        value = str(value).casefold()
+        for member in cls:
+            if member.name.casefold() == value:
+                return member
 
 
 class TempExt(StrEnum):
@@ -87,29 +63,23 @@ class BlockedDomains:
         exact_match = *exact_match, "x.com"
 
 
-DEFAULT_APP_STORAGE = Path("./AppData")
-DEFAULT_DOWNLOAD_STORAGE = Path("./Downloads")
-RESERVED_CONFIG_NAMES = ["all", "default"]
-NOT_DEFINED = field(init=False)
-
-
 class HashType(StrEnum):
     md5 = "md5"
     sha256 = "sha256"
     xxh128 = "xxh128"
 
 
-class Hashing(StrEnum):
+class HashMode(CIStrEnum):
     OFF = auto()
     IN_PLACE = auto()
     POST_DOWNLOAD = auto()
 
-    @classmethod
-    def _missing_(cls, value: object) -> "Hashing":
-        return cls[str(value).upper()]
+    @property
+    def enabled(self) -> bool:
+        return self is not HashMode.OFF
 
 
-class BROWSERS(StrEnum):
+class Browser(StrEnum):
     chrome = auto()
     firefox = auto()
     safari = auto()
@@ -129,75 +99,106 @@ class NotificationResult(Enum):
     NONE = Text("No Notifications Sent", "yellow")
 
 
-# file formats
-FILE_FORMATS = {
-    "Images": {
-        ".gif",
-        ".gifv",
-        ".heic",
-        ".jfif",
-        ".jif",
-        ".jpe",
-        ".jpeg",
-        ".jpg",
-        ".jxl",
-        ".png",
-        ".svg",
-        ".tif",
-        ".tiff",
-        ".webp",
-    },
-    "Videos": {
-        ".3gp",
-        ".avchd",
-        ".avi",
-        ".f4v",
-        ".flv",
-        ".m2ts",
-        ".m4p",
-        ".m4v",
-        ".mkv",
-        ".mov",
-        ".mp2",
-        ".mp4",
-        ".mpe",
-        ".mpeg",
-        ".mpg",
-        ".mpv",
-        ".mts",
-        ".ogg",
-        ".ogv",
-        ".qt",
-        ".swf",
-        ".ts",
-        ".webm",
-        ".wmv",
-    },
-    "Audio": {
-        ".flac",
-        ".m4a",
-        ".mka",
-        ".mp3",
-        ".wav",
-    },
-    "Text": {
-        ".htm",
-        ".html",
-        ".md",
-        ".nfo",
-        ".txt",
-        ".vtt",
-        ".sub",
-    },
-    "7z": {
-        ".7z",
-        ".bz2",
-        ".gz",
-        ".tar",
-        ".zip",
-    },
-}
-
-
-MEDIA_EXTENSIONS = FILE_FORMATS["Audio"] | FILE_FORMATS["Videos"] | FILE_FORMATS["Images"]
-DISABLE_CACHE = None
+@final
+class FileExt:
+    IMAGE = frozenset(
+        {
+            ".gif",
+            ".gifv",
+            ".heic",
+            ".jfif",
+            ".jif",
+            ".jpe",
+            ".jpeg",
+            ".jpg",
+            ".jxl",
+            ".png",
+            ".svg",
+            ".tif",
+            ".tiff",
+            ".webp",
+        }
+    )
+    VIDEO = frozenset(
+        {
+            ".3gp",
+            ".avchd",
+            ".avi",
+            ".f4v",
+            ".flv",
+            ".m2ts",
+            ".m4p",
+            ".m4v",
+            ".mkv",
+            ".mov",
+            ".mp2",
+            ".mp4",
+            ".mpe",
+            ".mpeg",
+            ".mpg",
+            ".mpv",
+            ".mts",
+            ".ogg",
+            ".ogv",
+            ".qt",
+            ".swf",
+            ".ts",
+            ".webm",
+            ".wmv",
+        }
+    )
+    AUDIO = frozenset(
+        {
+            ".flac",
+            ".m4a",
+            ".mka",
+            ".mp3",
+            ".wav",
+        }
+    )
+    TEXT = frozenset(
+        {
+            ".htm",
+            ".html",
+            ".md",
+            ".nfo",
+            ".txt",
+            ".vtt",
+            ".sub",
+        }
+    )
+    SEVEN_Z = frozenset(
+        {
+            ".7z",
+            ".bz2",
+            ".gz",
+            ".tar",
+            ".zip",
+        }
+    )
+    VIDEO_OR_IMAGE = VIDEO | IMAGE
+    MEDIA = AUDIO | VIDEO_OR_IMAGE
+    DANGEROUS = frozenset(
+        {
+            ".bat",
+            ".com",
+            ".exe",
+            ".hta",
+            ".inf",
+            ".jar",
+            ".js",
+            ".lnk",
+            ".msc",
+            ".msi",
+            ".ps1",
+            ".ps2",
+            ".psc1",
+            ".psc2",
+            ".sh",
+            ".scf",
+            ".vb",
+            ".vbs",
+            ".wsc",
+            ".wsh",
+        }
+    )

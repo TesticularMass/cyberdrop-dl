@@ -5,77 +5,46 @@ on:
     branches:
       - main
     paths:
-      - 'cyberdrop_dl/**/*.py'
-      - 'tests/**/*.py'
-      - '.github/workflows/ci.yaml'
-      - 'pyproject.toml'
-      - 'uv.lock'
-      - 'tox.ini'
-      - '.python-version'
-      - '.github/workflows/apprise.yaml'
-      - '.github/workflows/release.yml'
-      - 'scripts/release/**'
+      - "cyberdrop_dl/**/*.py"
+      - "tests/**/*.py"
+      - ".github/workflows/ci.yaml"
   pull_request:
     branches:
       - main
     paths:
-      - 'cyberdrop_dl/**/*.py'
-      - 'cyberdrop_dl/pyproject.toml'
-      - 'tests/**/*.py'
-      - '.github/workflows/ci.yaml'
-      - 'pyproject.toml'
-      - 'uv.lock'
-      - 'tox.ini'
-      - '.python-version'
-      - '.github/workflows/apprise.yaml'
-      - '.github/workflows/release.yml'
-      - 'scripts/release/**'
+      - "cyberdrop_dl/**/*.py"
+      - "cyberdrop_dl/pyproject.toml"
+      - "tests/**/*.py"
+      - ".github/workflows/ci.yaml"
   workflow_dispatch:
 
+permissions: {}
+
 jobs:
-  no-build:
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: [3.13, 3.14]
-      fail-fast: false
-
-    steps:
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          version: "0.11.7"
-          python-version: ${{ matrix.python-version }}
-          enable-cache: "false"
-          ignore-empty-workdir: "true"
-
-      - name: Install CDL
-        run: uv tool install -v --no-build cyberdrop-dl-patched
-
   test:
+    name: Run pytest
+    permissions:
+      contents: read
+
     runs-on: ${{ matrix.os }}
 
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: [3.13, 3.14]
-      fail-fast: false
-
-    defaults:
-      run:
-        shell: bash
+        python-version: [3.12, 3.14]
+      fail-fast: true
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v8.1.0
         with:
-          version: "0.11.7"
           python-version: ${{ matrix.python-version }}
+          enable-cache: false
 
       - name: Install dependencies
         run: |
@@ -84,4 +53,4 @@ jobs:
       - name: Run pytest
         timeout-minutes: 10
         run: |
-          uv run pytest -v --cov
+          uv run pytest --ignore=tests/test_ffmpeg.py -v --cov

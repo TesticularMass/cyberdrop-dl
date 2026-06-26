@@ -1,25 +1,25 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, RateLimit, SupportedPaths
-from cyberdrop_dl.data_structures.mediaprops import Resolution
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL, ScrapeItem
 from cyberdrop_dl.exceptions import ScrapeError
-from cyberdrop_dl.utils import css, json
-from cyberdrop_dl.utils.utilities import error_handling_wrapper, get_text_between
+from cyberdrop_dl.mediaprops import Resolution
+from cyberdrop_dl.url_objects import AbsoluteHttpURL, ScrapeItem
+from cyberdrop_dl.utils import css, extr_text, json
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Generator
+    from collections.abc import Generator
 
     from bs4 import BeautifulSoup
 
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 class Selector:
-    STREAM_DATA = ".main-container > script:-soup-contains('var stream_data')"
+    STREAM_DATA = ".main-container script:-soup-contains('var stream_data')"
     PLAYLIST_TITLE = "[data-testid=playlist-title]"
     NEXT_PAGE = ".pagination li.next > a[href]"
 
@@ -63,7 +63,7 @@ class SpankBangCrawler(Crawler):
     _IMPERSONATE: ClassVar[str | bool | None] = True
     _RATE_LIMIT: ClassVar[RateLimit] = 2, 5
 
-    async def async_startup(self) -> None:
+    async def __async_post_init__(self) -> None:
         self.update_cookies({"country": "US", "age_pass": 1})
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
@@ -92,12 +92,6 @@ class SpankBangCrawler(Crawler):
                 return url / "videos"
             case _:
                 return url
-
-    async def web_pager(
-        self, url: AbsoluteHttpURL, next_page_selector: str | None = None, *, cffi: bool = False, **kwargs: Any
-    ) -> AsyncGenerator[BeautifulSoup]:
-        async for soup in super()._web_pager(url, next_page_selector, cffi=True, **kwargs):
-            yield soup
 
     @error_handling_wrapper
     async def video(self, scrape_item: ScrapeItem, video_id: str) -> None:
@@ -141,11 +135,13 @@ class SpankBangCrawler(Crawler):
 
             await self._iter_videos(scrape_item, soup)
 
+    @error_handling_wrapper
     async def search(self, scrape_item: ScrapeItem, query: str) -> None:
         scrape_item.setup_as_album(self.create_title(f"{query} [search]"))
         async for soup in self.web_pager(scrape_item.url):
             await self._iter_videos(scrape_item, soup)
 
+    @error_handling_wrapper
     async def profile(self, scrape_item: ScrapeItem, user: str) -> None:
         scrape_item.setup_as_profile(self.create_title(f"{user} [user]"))
         async for soup in self.web_pager(scrape_item.url):
@@ -153,7 +149,7 @@ class SpankBangCrawler(Crawler):
 
     async def _iter_videos(self, scrape_item: ScrapeItem, soup: BeautifulSoup) -> None:
         async with self.new_task_group(scrape_item) as tg:
-            for _, new_item in self.iter_children(scrape_item, soup, Selector.VIDEOS):
+            for new_item in self.iter_children(scrape_item, soup, Selector.VIDEOS):
                 tg.create_task(self.run(new_item))
 
 
@@ -165,15 +161,15 @@ def _parse_video(soup: BeautifulSoup, display_id: str) -> Video:
 
     title_tag = css.select(soup, "div#video h1")
     stream_js_text = css.select_text(soup, Selector.STREAM_DATA)
-    stream_data = get_text_between(stream_js_text, "stream_data = ", ";")
+    stream_data = extr_text(stream_js_text, "stream_data = ", ";")
     res, url = max(_parse_formats(stream_data))
     return Video(
         id=display_id,
         resolution=res,
         url=url,
-        stream_id=get_text_between(stream_js_text, "ana_video_id = ", ";").strip("'"),
+        stream_id=extr_text(stream_js_text, "ana_video_id = ", ";").strip("'"),
         stream_key=css.select(soup, "[data-streamkey]", "data-streamkey"),
-        title=css.get_attr_or_none(title_tag, "title") or css.get_text(title_tag),
+        title=css.attr_or_none(title_tag, "title") or css.text(title_tag),
     )
 
 

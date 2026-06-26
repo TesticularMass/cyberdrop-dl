@@ -1,26 +1,48 @@
+import hashlib
 import os
-from hashlib import sha256
 
+ALL_VARS: dict[str, str | None] = {}
 os.environ["PYDANTIC_ERRORS_INCLUDE_URL"] = "0"
-RUNNING_IN_IDE = bool(os.getenv("PYCHARM_HOSTED") or os.getenv("TERM_PROGRAM") == "vscode")
+
+
+def _env(name: str, *, censor: bool = False) -> str | None:
+    full_name = "CDL_" + name
+    value = os.getenv(full_name)
+    if censor and value:
+        value = hashlib.sha256(value.encode("utf-8")).hexdigest()
+    ALL_VARS[full_name] = value
+    return value
+
+
 RUNNING_IN_TERMUX = bool(
     os.getenv("TERMUX_VERSION") or os.getenv("TERMUX_MAIN_PACKAGE_FORMAT") or "com.termux" in os.getenv("$PREFIX", "")
 )
-PORTRAIT_MODE = bool(RUNNING_IN_TERMUX or os.getenv("CDL_PORTRAIT_MODE"))
-ENABLE_DEBUG_CRAWLERS = os.getenv("CDL_ENABLE_DEBUG_CRAWLERS")
-if ENABLE_DEBUG_CRAWLERS:
-    ENABLE_DEBUG_CRAWLERS = sha256(ENABLE_DEBUG_CRAWLERS.encode("utf-8")).hexdigest()
+FORCE_PORTRAIT_MODE = bool(_env("PORTRAIT_MODE") or RUNNING_IN_TERMUX)
 
-DEBUG_LOG_FOLDER = os.getenv("CDL_DEBUG_LOG_FOLDER")
-PROFILING = os.getenv("CDL_PROFILING")
+ALLOW_MISSING_CONTENT_LENGTH = bool(_env("ALLOW_MISSING_CONTENT_LENGTH"))
+DEBUG_LOG_FOLDER = _env("DEBUG_LOG_FOLDER")
 
-MAX_CRAWLER_ERRORS = int(os.getenv("CDL_MAX_CRAWLER_ERRORS") or 10)
-DEBUG_VAR = RUNNING_IN_IDE or DEBUG_LOG_FOLDER or PROFILING
-NO_PLUGINS = bool(os.getenv("CDL_NO_PLUGINS"))
+MAX_CRAWLER_ERRORS = int(_env("MAX_CRAWLER_ERRORS") or 10)
+DEBUG_MODE = bool(
+    _env("DEBUG_MODE")
+    or DEBUG_LOG_FOLDER
+    or os.getenv("PYCHARM_HOSTED")
+    or os.getenv("TERM_PROGRAM") in {"vscode", "zed"}
+)
+ENABLE_DEBUG_CRAWLERS = (
+    _env("ENABLE_DEBUG_CRAWLERS", censor=True) == "d396ab8c85fcb1fecd22c8d9b58acf944a44e6d35014e9dd39e42c9a64091eda"
+)
+
+APPDATA_FOLDER = _env("APPDATA_FOLDER")
+WRITE_JSON_UI = int(_env("WRITE_JSON_UI") or 0) or None
+EDITOR = os.getenv("EDITOR")
 
 # CRAWLERS
 
-PIXELDRAIN_PROXY = os.getenv("CDL_PIXELDRAIN_PROXY")
-BANDCAMP_FORMATS = os.getenv("CDL_BANDCAMP_FORMATS")
-EPORNER_PREFER_H264 = os.getenv("CDL_EPORNER_PREFER_H264")
-ENABLE_TWITTER = bool(os.getenv("CDL_ENABLE_TWITTER"))
+ENABLE_TWITTER = bool(_env("ENABLE_TWITTER"))
+GOFILE_SALT = _env("GOFILE_SALT")
+
+ALL_VARS = dict(sorted(ALL_VARS.items()))  # pyright: ignore[reportConstantRedefinition]
+ALL_VARS_RESOLVED = dict(
+    sorted((k, v) for k, v in globals().items() if k not in {"os", "hashlib", "ALL_VARS"} and not k.startswith("_"))
+)

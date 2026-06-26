@@ -3,16 +3,16 @@ from __future__ import annotations
 import random
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.crawlers.crawler import Crawler, RateLimit, SupportedPaths
 from cyberdrop_dl.exceptions import LoginError
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.utils import css
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 class Selector:
@@ -35,11 +35,11 @@ class NHentaiCrawler(Crawler):
         ),
         "Gallery": "/g/<gallery_id>",
     }
-    PRIMARY_URL = AbsoluteHttpURL("https://nhentai.net/")
-    NEXT_PAGE_SELECTOR = "a.next"
-    DOMAIN = "nhentai.net"
-    FOLDER_DOMAIN = "nHentai"
-    _RATE_LIMIT = 4, 1
+    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://nhentai.net/")
+    NEXT_PAGE_SELECTOR: ClassVar[str] = "a.next"
+    DOMAIN: ClassVar[str] = "nhentai.net"
+    FOLDER_DOMAIN: ClassVar[str] = "nHentai"
+    _RATE_LIMIT: ClassVar[RateLimit] = 4, 1
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         match scrape_item.url.parts[1:]:
@@ -53,7 +53,7 @@ class NHentaiCrawler(Crawler):
     @error_handling_wrapper
     async def collection(self, scrape_item: ScrapeItem, collection_type: str) -> None:
         title: str = ""
-        async for soup in self.web_pager(scrape_item.url, cffi=True):
+        async for soup in self.web_pager(scrape_item.url, impersonate=True):
             if not title:
                 if collection_type == "favorites":
                     title_tag = css.select(soup, Selector.FAVORITES_TITLE)
@@ -69,19 +69,19 @@ class NHentaiCrawler(Crawler):
                 title = self.create_title(title_tag.get_text(strip=True) + title)
                 scrape_item.setup_as_album(title)
 
-            for _, new_scrape_item in self.iter_children(scrape_item, soup, Selector.ITEM):
+            for new_scrape_item in self.iter_children(scrape_item, soup, Selector.ITEM):
                 self.create_task(self.run(new_scrape_item))
 
     @error_handling_wrapper
     async def gallery(self, scrape_item: ScrapeItem) -> None:
         gallery_id = scrape_item.url.name
-        api_url = self.PRIMARY_URL / "api/gallery" / gallery_id
+        api_url = self.PRIMARY_URL / "api/v2/galleries" / gallery_id
         json_resp: dict[str, Any] = await self.request_json(api_url, impersonate=True)
 
         titles: dict[str, str] = json_resp["title"]
         title: str = titles.get("english") or titles.get("japanese") or titles["pretty"]
         scrape_item.setup_as_album(self.create_title(title, gallery_id), album_id=gallery_id)
-        scrape_item.possible_datetime = json_resp["upload_date"]
+        scrape_item.uploaded_at = json_resp["upload_date"]
 
         padding = max(3, len(str(json_resp["num_pages"])))
         for index, link in _gen_image_urls(json_resp):
@@ -91,14 +91,6 @@ class NHentaiCrawler(Crawler):
 
 
 def _gen_image_urls(json_resp: dict[str, Any]) -> Generator[tuple[int, AbsoluteHttpURL]]:
-    media_id: str = json_resp["media_id"]
-    for index, page in enumerate(json_resp["images"]["pages"], 1):
-        ext = {
-            "a": ".avif",
-            "g": ".gif",
-            "j": ".jpg",
-            "p": ".png",
-            "w": ".webp",
-        }.get(page["t"], ".jpg")
+    for index, page in enumerate(json_resp["pages"], 1):
         cdn = random.randint(1, 4)
-        yield index, AbsoluteHttpURL(f"https://i{cdn}.nhentai.net/galleries/{media_id}/{index}{ext}")
+        yield index, AbsoluteHttpURL(f"https://i{cdn}.nhentai.net") / page["path"]

@@ -8,15 +8,15 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 from pydantic import TypeAdapter
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedDomains, SupportedPaths, auto_task_id
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.exceptions import ScrapeError
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.utils import dates
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 _EU_API_URL = AbsoluteHttpURL("https://eapi.pcloud.com")
@@ -39,10 +39,7 @@ class Node:
 
     @property
     def _id(self) -> str:
-        if self.isfolder:
-            id_ = self.folderid
-        else:
-            id_ = self.fileid
+        id_ = self.folderid if self.isfolder else self.fileid
         assert id_ is not None
         return str(id_)
 
@@ -55,7 +52,7 @@ _parse_node_resp = TypeAdapter(Node).validate_python
 
 
 class PCloudCrawler(Crawler):
-    SUPPORTED_DOMAINS: SupportedDomains = "e.pc.cd", "pc.cd", "pcloud"
+    SUPPORTED_DOMAINS: ClassVar[SupportedDomains] = "e.pc.cd", "pc.cd", "pcloud"
     SUPPORTED_PATHS: ClassVar[SupportedPaths] = {
         "Public File or folder": (
             "?code=<share_code>",
@@ -90,9 +87,9 @@ class PCloudCrawler(Crawler):
         if node.isfolder:
             scrape_item.setup_as_album(self.create_title(node.name, node.id))
             self._iter_nodes(scrape_item, node.contents)
-            return
+            return None
 
-        return await self.file(scrape_item, cast("File", node))
+        return await self._file(scrape_item, cast("File", node))
 
     def _iter_nodes(self, scrape_item: ScrapeItem, nodes: Sequence[Node], *parents: str) -> None:
         folders: list[Node] = []
@@ -106,25 +103,25 @@ class PCloudCrawler(Crawler):
             url = scrape_item.url.update_query(file_id=file._id)
             new_scrape_item = scrape_item.create_child(url)
             for parent in parents:
-                new_scrape_item.add_to_parent_title(parent)
+                new_scrape_item.append_folders(parent)
             self.create_task(self._file_task(new_scrape_item, file))
             scrape_item.add_children()
 
         for folder in folders:
             self._iter_nodes(scrape_item, folder.contents, *parents, folder.name)
 
-    async def file(self, scrape_item: ScrapeItem, file: File) -> None:
+    async def _file(self, scrape_item: ScrapeItem, file: File) -> None:
         # https://docs.pcloud.com/methods/public_links/getpublinkdownload.html
 
         link = await self._request_download_url(scrape_item, file)
         # https://docs.pcloud.com/structures/datetime.html
-        scrape_item.possible_datetime = dates.parse_http(file.modified)
+        scrape_item.upload_date = dates.parse_http(file.modified)
         filename, ext = self.get_filename_and_ext(file.name)
         # Adding the code as query just for logging messages. It will be discarded in the actual db
         db_url = (scrape_item.url.origin() / "file" / file._id).with_query(code=scrape_item.url.query["code"])
         await self.handle_file(db_url, scrape_item, file.name, ext, debrid_link=link, custom_filename=filename)
 
-    _file_task = auto_task_id(file)
+    _file_task = auto_task_id(error_handling_wrapper(_file))
 
     async def _request_download_url(self, scrape_item: ScrapeItem, file: File) -> AbsoluteHttpURL:
         path = "getmediatranscodepublink" if "video" in file.contenttype else "getpublinkdownload"
@@ -138,7 +135,9 @@ class PCloudCrawler(Crawler):
         if variants := resp.get("variants"):
             resp = next(v for v in variants if v["transcodetype"] == "original")
 
-        return self.parse_url(f"https://{resp['hosts'][0]}{resp['path']}")
+        host: str = next(iter(resp["hosts"]))
+        path: str = resp["path"]
+        return self.parse_url(f"https://{host}{path}")
 
     async def _api_request(self, api_url: AbsoluteHttpURL) -> dict[str, Any]:
         resp: dict[str, Any] = await self.request_json(api_url)

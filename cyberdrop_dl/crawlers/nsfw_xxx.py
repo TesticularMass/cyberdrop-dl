@@ -3,14 +3,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.exceptions import ScrapeError
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 _BASE_QUERY = "nsfw[]=0&nsfw[]=1&nsfw[]=2&nsfw[]=3&nsfw[]=4"
 _TYPES_QUERY = "types[]=image&types[]=video&types[]=gallery"
@@ -48,23 +48,26 @@ class NsfwXXXCrawler(Crawler):
             case _:
                 raise ValueError
 
+    @error_handling_wrapper
     async def subreddit(self, scrape_item: ScrapeItem, subreddit: str) -> None:
         api_url = self.PRIMARY_URL / "api/v1/source/r" / subreddit
         await self._collection(scrape_item, api_url)
 
+    @error_handling_wrapper
     async def category(self, scrape_item: ScrapeItem, name: str) -> None:
         api_url = self.PRIMARY_URL / "api/v1/category" / name
         await self._collection(scrape_item, api_url)
 
+    @error_handling_wrapper
     async def search(self, scrape_item: ScrapeItem, query: str) -> None:
         api_url = (self.PRIMARY_URL / "api/v1/search").with_query(q=query)
         await self._collection(scrape_item, api_url, query)
 
+    @error_handling_wrapper
     async def user(self, scrape_item: ScrapeItem, username: str) -> None:
         api_url = self.PRIMARY_URL / "api/v1/user" / username
         await self._collection(scrape_item, api_url, f"@{username}")
 
-    @error_handling_wrapper
     async def _collection(self, scrape_item: ScrapeItem, api_url: AbsoluteHttpURL, name: str | None = None) -> None:
         title: str = ""
         type_ = api_url.parts[3]
@@ -85,11 +88,11 @@ class NsfwXXXCrawler(Crawler):
         while True:
             resp = await self.request_json(api_url)
             yield resp["data"]
-            next: str | None = resp["meta"].get("nextPage")
-            if not next:
+            next_page: str | None = resp["meta"].get("nextPage")
+            if not next_page:
                 break
 
-            api_url = self.parse_url(next)
+            api_url = self.parse_url(next_page)
 
     @error_handling_wrapper
     async def post(self, scrape_item: ScrapeItem, post_id: str) -> None:
@@ -103,7 +106,7 @@ class NsfwXXXCrawler(Crawler):
         data: dict[str, Any] = post["data"]
         type_: str = content["type"]
 
-        scrape_item.possible_datetime = date = self.parse_date(post["publishedAt"])
+        scrape_item.uploaded_at = date = self.parse_date(post["publishedAt"], "%B %Y")
         title = self.create_separate_post_title(content["title"], str(content["id"]), date)
         scrape_item.setup_as_album(self.create_title(title), album_id=str(content["id"]))
 

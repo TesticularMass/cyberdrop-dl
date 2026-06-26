@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar
 
-from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.crawlers.crawler import Crawler, RateLimit, SupportedPaths
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.utils import css
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 class Selector:
@@ -16,9 +16,6 @@ class Selector:
     TITLE = "h1.title-right"
     NEXT_PAGE = "div#pagination > a:-soup-contains('»')"
     VIDEOS_THUMBS = "div.contents div.content a"
-
-
-PRIMARY_URL = AbsoluteHttpURL("https://luxuretv.com")
 
 
 class LuxureTVCrawler(Crawler):
@@ -29,9 +26,9 @@ class LuxureTVCrawler(Crawler):
     DOMAIN: ClassVar[str] = "luxuretv"
     FOLDER_DOMAIN: ClassVar[str] = "LuxureTV"
     DEFAULT_TRIM_URLS: ClassVar[bool] = False
-    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = PRIMARY_URL
+    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://luxuretv.com")
     NEXT_PAGE_SELECTOR: ClassVar[str] = Selector.NEXT_PAGE
-    _RATE_LIMIT = 3, 10
+    _RATE_LIMIT: ClassVar[RateLimit] = 3, 10
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         match scrape_item.url.parts[1:]:
@@ -50,22 +47,22 @@ class LuxureTVCrawler(Crawler):
         scrape_item.setup_as_album(title)
         url = scrape_item.url
         if url.name and not url.name.endswith(".html"):
-            url = url / ""
+            url /= ""
 
-        async for soup in self.web_pager(url, cffi=True):
-            for _, new_scrape_item in self.iter_children(scrape_item, soup, Selector.VIDEOS_THUMBS):
+        async for soup in self.web_pager(url, impersonate=True):
+            for new_scrape_item in self.iter_children(scrape_item, soup, Selector.VIDEOS_THUMBS):
                 self.create_task(self.run(new_scrape_item))
 
     @error_handling_wrapper
     async def video(self, scrape_item: ScrapeItem, video_id: str) -> None:
-        if await self.check_complete_from_referer(scrape_item):
-            return
+        if await self.check_complete_from_referer(scrape_item.url):
+            return None
 
         soup = await self.request_soup(scrape_item.url, impersonate=True)
-        scrape_item.possible_datetime = self.parse_iso_date(css.get_json_ld_date(soup))
+        scrape_item.uploaded_at = self.parse_iso_date(css.json_ld(soup)["uploadDate"])
         video_player = css.select(soup, Selector.VIDEO_PLAYER)
         title = css.select_text(soup, Selector.TITLE)
-        link = self.parse_url(css.get_attr(video_player, "src"))
+        link = self.parse_url(css.attr(video_player, "src"))
         filename, ext = self.get_filename_and_ext(link.name)
         custom_filename = self.create_custom_filename(title, ext, file_id=video_id)
 

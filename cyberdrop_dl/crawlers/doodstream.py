@@ -6,9 +6,9 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedDomains, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
-from cyberdrop_dl.utils import css
-from cyberdrop_dl.utils.utilities import error_handling_wrapper, get_text_between
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.utils import css, extr_text
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
     from bs4 import BeautifulSoup
@@ -41,6 +41,8 @@ class DoodStreamCrawler(Crawler):
         "do7go.com",
         "all3do.com",
         "playmogo.com",
+        "vidply.com",
+        "dooodster.com",
     )
     PRIMARY_URL: ClassVar[AbsoluteHttpURL] = PRIMARY_URL
     UPDATE_UNSUPPORTED: ClassVar[bool] = True

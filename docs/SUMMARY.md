@@ -1,12 +1,12 @@
 # Table of contents
 
-* [Welcome!](README.md)
-* [Getting Started](getting-started/README.md)
-  * [Cyberdrop-DL Install](getting-started/cyberdrop-dl-install.md)
-  * [Running CDL on Android](getting-started/cyberdrop-dl-on-android.md)
-* [Transition to V8](upgrade.md)
-* [Frequently Asked Questions](frequently-asked-questions.md)
-* [Migration to Cyberdrop-DL-Patched](migration-to-cyberdrop-dl-patched.md)
+- [Welcome!](README.md)
+- [Getting Started](getting-started/README.md)
+  - [Cyberdrop-DL Install](getting-started/cyberdrop-dl-install.md)
+  - [Running CDL on Android](getting-started/cyberdrop-dl-on-android.md)
+- [Frequently Asked Questions](frequently-asked-questions.md)
+- [SimpCity Support Dropped](simpcity-support-dropped.md)
+
 ## Reference
 
 - [Supported Websites](reference/supported-websites.md)

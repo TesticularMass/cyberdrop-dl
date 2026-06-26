@@ -3,64 +3,65 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar
 
 from cyberdrop_dl.crawlers._kvs import KernelVideoSharingCrawler
-from cyberdrop_dl.crawlers.porntrex import PorntrexCrawler
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL, ScrapeItem
+from cyberdrop_dl.url_objects import AbsoluteHttpURL, ScrapeItem
 from cyberdrop_dl.utils import css
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
     from cyberdrop_dl.crawlers.crawler import SupportedPaths
 
 
-LAST_PAGE_SELECTOR = "div.pagination-holder li.page"
+class Selector:
+    TITLE = ".main-container .headline h1"
+    VIDEOS = ".list-videos .item a"
 
 
-class CamwhoresTVCrawler(KernelVideoSharingCrawler):
+class CamwhoresTVCrawler(KernelVideoSharingCrawler, ensure_trailing_slash=True):
     SUPPORTED_PATHS: ClassVar[SupportedPaths] = {
-        "Search": "/search/...",
-        "Categories": "/categories/...",
-        "Tags": "/tags/...",
-        "Videos": "/videos/...",
-        "Members": "/members/<member_id>",
+        "Search": "/search/<query>/",
+        "Category": "/categories/<name>/",
+        "Tag": "/tags/<name>/",
+        "Video": "/videos/<id>/<slug>",
     }
 
     PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://www.camwhores.tv")
     DOMAIN: ClassVar[str] = "camwhores.tv"
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
-        # Returns 404 without the trailing slash
-        if scrape_item.url.name:
-            scrape_item.url = scrape_item.url / ""
-        await super().fetch(scrape_item)
+        match scrape_item.url.parts[1:-1]:
+            case ["categories" | "tags" as type_, _]:
+                return await self.search(scrape_item, type_)
+            case ["search" as type_, query]:
+                return await self.search(scrape_item, type_, query)
+            case ["videos", _, _]:
+                return await self.video(scrape_item)
+            case _:
+                raise ValueError
 
-    def parse_url(
-        self, link_str: str, relative_to: AbsoluteHttpURL | None = None, *, trim: bool | None = None
-    ) -> AbsoluteHttpURL:
-        return super().parse_url(link_str, relative_to, trim=False)
+    @error_handling_wrapper
+    async def search(self, scrape_item: ScrapeItem, type_: str, query: str | None = None) -> None:
+        soup = await self.request_soup(scrape_item.url)
+        title = self._clean_title(css.select_text(soup, Selector.TITLE))
+        title = self.create_title(f"{title} [{type_}]")
+        scrape_item.setup_as_album(title)
 
-    async def picture(self, scrape_item: ScrapeItem) -> None:
-        # images are encrypted, similar to the video URLS
-        # https://www.camwhores.tv/get_image/93/9da0742b1fb753388286b95c2a66d766/sources/100000/100557/1472879.jpg/
-        # TODO: Find out license to decrypt them
-        # Almost all albums are private anyways..
-        raise NotImplementedError
+        for new_scrape_item in self.iter_children(scrape_item, soup, Selector.VIDEOS):
+            self.create_task(self.run(new_scrape_item))
 
-    async def album(self, scrape_item: ScrapeItem) -> None:
-        raise NotImplementedError
+        await self._iter_extra_pages(scrape_item, type_, query)
 
-    async def iter_videos(self, scrape_item: ScrapeItem, video_category: str = "") -> None:
-        url = scrape_item.url / video_category if video_category else scrape_item.url
-        await super().iter_videos(scrape_item, video_category)
-        soup = await self.request_soup(url)
+    async def _iter_extra_pages(self, scrape_item: ScrapeItem, type_: str, query: str | None = None) -> None:
+        if type_ == "search":
+            block_id, from_name = "list_videos_videos_list_search_result", "from_videos"
+        else:
+            block_id, from_name = "list_videos_common_videos_list", "from"
 
-        try:
-            last_page = int(css.get_text(soup.select(LAST_PAGE_SELECTOR)[-1]))
-        except IndexError:
-            return
-
-        # TODO: Porntrex also uses KVS. Make the KVS crawler handle it by default
-        await PorntrexCrawler.proccess_additional_pages(
-            self,  # type: ignore[ArgumentType]
-            scrape_item,
-            last_page,
-            block_id="list_videos_common_videos_list",
-        )
+        async for soup in self._ajax_pagination(
+            scrape_item.url,
+            block_id=block_id,
+            sort_by="post_date",
+            q=query,
+            from_query_param_name=from_name,
+        ):
+            for new_scrape_item in self.iter_children(scrape_item, soup, Selector.VIDEOS):
+                self.create_task(self.run(new_scrape_item))

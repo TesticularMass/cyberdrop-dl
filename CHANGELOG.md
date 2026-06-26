@@ -22,6 +22,557 @@ All notable changes to this project will be documented here. For more details, v
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [10.0.0] - UNRELEASED
+
+⚠️**IMPORTANT**
+
+> This version is incompatible with any previous release. Config file options need to be manually migrated by user.
+>
+> CDL will refuse to start if the current database schema is older than `v9.15.0`. Run `cyberdrop-dl database transfer` to upgrade older databases
+
+### Added
+
+- New `--cookies` option to read cookies from a file/folder
+- New `--hashes` option to control which hashes CDL computes for new downloads
+- New `--database-file` option
+- New `--cache-file` option
+- New `download` CLI command (replaces the `--download` argument)
+- New `config` CLI command
+- New `cache` CLI command
+- New `hash` CLI command
+- New `report` CLI command
+
+### Changed
+
+- The config file format has changed. All configs (`Auth`, `Global` and `Setttings`) are now a single file. Several options have new names, new defaults and new groups
+- A default config file will noo longer be created. You can manually create a default one from the `Edit config` option on the main menu
+- Validate config in strict mode. If a config has an unknown entry, CDL will refuse to run instead of ignoring it
+- Apprise URLs are now part of the main config file instead of a dedicated `apprise.txt` file
+- Refuse to start if the current database schema is older than `v9.15.0`
+- Cookies with not be automatically loaded from `AppData/cookies`. Path to cookies needs to be specified with `--cookies`
+- Always remove generated id from filenames (Cyberdrop)
+- Compute `xxh128`, `md5` and `sha256` hashes by default
+- `--deep-scrape` will no longer reset after a single run
+- `--input-file` is now a CLI only arg
+- If supplied, `--input-file` needs to be a valid file that exists
+- Refuse to run if both URLs and `--input-file` are passed as arguments
+- Detect and report BasedFlare anti-bot protection
+- Limit max queued downloads of a single site to the config concurrency limit x10 (capped at 50). All scraping for a site will be paused if its queue is full
+
+The following options, which were CLI only arguments, now have dedicated config entries:
+
+- `--ui` (entry: `ui.mode`)
+- `--portrait` (entry: `ui.portrait`)
+- `--stats`
+
+Several config options have new names:
+
+- `--disable-crawlers` -> `--crawlers.disabled`
+- `--disable-file-timestamps` -> `--mtime`
+- `--maximum-audio-duration` -> `--audio.duration.max`
+- `--maximum-image-size` -> `--image.size.max`
+- `--maximum-number-of-children` -> `--max-children`
+- `--maximum-other-size` -> `--non-media.size.max`
+- `--maximum-thread-depth` -> `--max-thread-depth`
+- `--maximum-thread-folder-depth` -> `--max-thread-folder-depth`
+- `--maximum-video-duration` -> `--video.duration.max`
+- `--maximum-video-size` -> `--video.size.max`
+- `--minimum-audio-duration` -> `--audio.duration.min`
+- `--minimum-image-size` -> `--image.size.min`
+- `--minimum-other-size` -> `--non-media.size.min`
+- `--minimum-video-duration` -> `--video.duration.min`
+- `--minimum-video-size` -> `--video.size.min`
+- `--required-free-space` -> `--min-free-space`
+- `--print-stats` -> `--stats` , `--no-stats`
+- `--send-deleted-to-trash` -> `--hashing.dedupe.use-trash-bin`
+
+#### Jdownloader
+
+- `--jdownloader-autostart` -> `--jdownloader.autostart`
+- `--jdownloader-download-dir` -> `--jdownloader.download-dir`
+- `--jdownloader-whitelist` -> `--jdownloader.whitelist`
+- `--send-unsupported-to-jdownloader` -> `--jdownloader` / `--no-jdownloader`
+
+#### Sorting
+
+- `--sort-downloads` -> `--sort` / `--no-sort`
+- `--scan-folder` -> `--sort.input-folder`
+- `--sort-folder` -> `--sort.output-folder`
+- `--sort-incrementer-format` -> `--sort.formats.incrementer`
+- `--sorted-audio` -> `--sort.formats.audio`
+- `--sorted-image` -> `--sort.formats.image`
+- `--sorted-other` -> `--sort.formats.non-media`
+- `--sorted-video` -> `--sort.formats.video`
+
+#### Ignore options (filters)
+
+The behavior of `--filename-regex` has been reversed (files that DO NOT match the regex will skipped)
+The behavior of `--before` and `--after` has been reversed and the `--exclude` prefix removed (they now **include** instead of excluding files)
+
+- `--exclude-audio` -> `--no-audio`
+- `--exclude-images` -> `--no-images`
+- `--exclude-other` -> `--no-non-media`
+- `--exclude-videos` -> `--no-videos`
+- `--exclude-before` -> `--before`
+- `--exclude-after` -> `--after`
+- `--exclude-files-with-no-extension` -> `--allow-files-with-no-extension`
+- `--filename-regex-filter` -> `--filename-regex`
+- `--ignore-coomer-ads` -> `--crawlers.coomer.ignore-ads`
+- `--ignore-coomer-post-content` -> `--crawlers.coomer.ignore-post-content`
+- `--download-tiktok-src-quality-videos` -> - `--crawlers.tiktok.original`
+
+#### Logs
+
+- `--log-level` -> `--logs.level`
+- `--console-log-level` -> `--logs.console-level`
+- `--log-folder` -> `--logs.folder`
+- `--logs-expire-after` -> `--logs.expire-after`
+- `--main-log` -> `--logs.files.main` with alias `--log-file`
+- `--download-error-urls` -> `--logs.files.download-errors`
+- `--rotate-logs` -> `--logs-rotate`
+- `--scrape-error-urls` -> `--logs.files.scrape-errors`
+- `--unsupported-urls` -> `--logs.files.unsupported`
+
+#### DownloadOptions
+
+- `--block-download-sub-folders` -> `--subfolders`, `--no-subfolders`
+- `--include-album-id-in-folder-name` -> `--subfolders.include.album-id`
+- `--include-thread-id-in-folder-name` -> `--subfolders.include.thread-id`
+- `--remove-domains-from-folder-names` -> `--subfolders.include.domain`
+- `--separate-posts-format` -> `--subfolders.separate-posts-format`
+- `--separate-posts` -> `--subfolders.separate-posts`
+- `--skip-download-mark-completed` -> `--skip-and-mark-completed`
+- `--max-simultaneous-downloads` -> `--downloads`
+- `--max-simultaneous-downloads-per-domain` -> `--downloads.per-domain`
+- `--slow-download-speed` -> `--slow-speed`
+- `--download-attempts` -> `--attempts`
+- `--download-delay` -> `--delay`
+- `--download-speed-limit` -> `--speed-limit`
+
+#### Generic crawlers
+
+- `--wordpress-media` -> `--crawlers.generic.wordpress-media`
+- `--wordpress-html` -> `--crawlers.generic.wordpress-html`
+- `--discourse` -> `--crawlers.generic.discourse`
+- `--chevereto` -> `--crawlers.generic.chevereto`
+
+### Removed
+
+- Support for python 3.11
+- All retry settings + menu option
+- `--log-level` and `--console-log-level` (`--logs.level` and `--logs.console-level`) no longer accept integers. Only log level names as valid, ex: `INFO`, `DEBUG`, `WARNING`
+- Posts filtering by URL params (Wordpress)
+- Auto cookie extraction support
+
+Several config options have been removed:
+
+- `--appdata-folder`
+- `--add-md5-hash`
+- `--add-sha256-hash`
+- `--auto-import`
+- `--browser`
+- `--completed-after`
+- `--completed-before`
+- `--disable-download-attempt-limit`
+- `--download-tiktok-audios`
+- `--last-forum-post`
+- `--max-items-retry`
+- `--remove-generated-id-from-filename`
+- `--retry-all`
+- `--retry-failed`
+- `--retry-maintenance`
+- `--save-pages-html`
+- `--scrape-single-forum-post`
+- `--sites`
+- `--skip-check-for-partial-files`
+- `--update-last-forum-post`
+
+The following authentication entries has been removed:
+
+- `Imgur.client_id`
+- `Kemono.session`
+- `Coomer.session`
+
+### Fixed
+
+- Do not skip initialization segments (HLS) (#1977)
+- 403 errors on embeded videos (twing)
+
+## [9.15.2] - 2026-06-16
+
+### Fixed
+
+- Update website salt (Gofile)
+- Free space check on network drives (Windows)
+
+## [9.15.1] - 2026-06-11
+
+### Fixed
+
+- Video metadata extraction (Spankbang)
+- Crashing when `--dump-json` option is used
+
+## [9.15.0] - 2026-06-10
+
+### Changed
+
+- Reject any download without a valid `Content-Length` header
+- Report any download with size < `Content-Length` as corrupted and delete them
+
+### Fixed
+
+- Channel downloads (Rumble)
+
+## [9.14.0] - 2026-06-03
+
+⚠️**IMPORTANT**
+
+> If you has ever used a Pixeldrain API key with `cyberdrop-dl-pacthed` version >=8.5.0, you should consider them compromised and disable them.
+>
+> See: [GHSA-f5pf-q7c7-m3vv (CVE-2026-54254)](https://github.com/Cyberdrop-DL/cyberdrop-dl/security/advisories/GHSA-f5pf-q7c7-m3vv)
+
+### Added
+
+- Support password protected files/folders (Filester)
+
+### Changed
+
+- Hard fail if any config option requires `ffmpeg` but `ffmpeg` is not installed
+- Disable hardcoded max concurrent downloads (2) if an API key is provided by the user (PixelDrain)
+- Exclude main log file from empty files check
+
+### Removed
+
+- Support for download proxies. Proxy URLs with be rewritten as pixeldrain.com URLs (PixelDrain)
+
+### Fixed
+
+- Some false positive DDoS-Guard detections
+- URLs extraction from text files in a filesystem (PixelDrain)
+
+### Security
+
+- Reject any URL not matching an official domain (Pixeldrain)
+
+## [9.13.0] - 2026-05-29
+
+### Changed
+
+- Replace bunkr-albums.io with balbums.st
+- Switch to new downloads API (Bunkr)
+- `--deep-scrape` no longer has any effect on Bunkr
+- Exclude dot files from empty files check
+
+### Removed
+
+- Support for direct links (Bunkr)
+
+### Fixed
+
+- Do not crash on HTTP errors from individual photos (Flickr)
+- Do not crash on HTTP errors from individual files (Google Drive)
+
+### Security
+
+- Reject download with leading dots as filenames (dot files)
+- Reject downloads if the final download path is outside the root download folder (path traversal)
+- The following extensions have been hardcoded to always be rejected:
+
+1. `.bat`
+2. `.com`
+3. `.exe`
+4. `.hta`
+5. `.inf`
+6. `.jar`
+7. `.js`
+8. `.lnk`
+9. `.msc`
+10. `.msi`
+11. `.ps1`
+12. `.ps2`
+13. `.psc1`
+14. `.psc2`
+15. `.sh`
+16. `.scf`
+17. `.vb`
+18. `.vbs`
+19. `.wsc`
+20. `.wsh`
+
+## [9.12.0] - 2026-05-27
+
+### Added
+
+- 1fichier support
+- Archive.org support
+- YTboob support
+- Rutube support
+- Acast support
+- Whyp.it support
+- Soundgasm support
+- Clyp.it support
+- Livestreamfails support
+- Yurivan support
+- Fatbox proxy support (Catbox)
+
+### Fixed
+
+- Date extraction (Rule34vault)
+- `--json` output missing files skipped by host or filename regex
+- Update website salt (Gofile)
+- Episode parsing (OnePace)
+- Do not crash on HTTP errors from profiles/search (Spankbang)
+
+## [9.11.0] - 2026-05-20
+
+### Changed
+
+- Show the aggregate speed of all downloads
+
+### Deprecated
+
+- Posts filtering by URL params will be removed on the next major release (Wordpress)
+
+### Fixed
+
+- Crash trying to decode non https URLs from the database (jpg5)
+- Wordpress support
+
+## [9.10.3] - 2026-05-19
+
+### Fixed
+
+- Parsing of thread URLs (Xenforo)
+- Date extraction (efukt.com)
+
+## [9.10.2] - 2026-05-19
+
+### Changed
+
+- Replaced fapello.su with fapello.com. Existing database entries will be ignored
+- Updated domain to xbunker.cc (Xbunkr)
+- Updated domain to www.imagepond.net (Imagepond)
+- Updated domain to turbo.cr (TurboVid)
+
+### Removed
+
+- files.vc support (No longer exists)
+- incestflix.com support (No longer exists)
+
+### Fixed
+
+- Do not try to parse upload date (YouJizz)
+- Video extraction from embed URLs (YouJizz)
+- Date extraction (Sex.com)
+- Date extraction (Rule34.xxx)
+- Date extraction (Nsfw.xxx)
+- Date extraction (e621)
+- Chapter info extraction (OmegaScans)
+- 403 Forbidden when the input URL is a direct file (Turbo.cr)
+
+## [9.10.1] - 2026-05-16
+
+### Changed
+
+- Update supported domains (JPG5)
+- Log URLs without public key as password protected (mega.nz)
+
+### Fixed
+
+- `--impersonate` being ignored
+- Infinite redirects on albums (imgbb)
+- Handle URLs with redundant empty parts (Fileditch)
+
+## [9.10.0] - 2026-05-13
+
+### Added
+
+- New `cleanup` subcommand
+- New `--concurrent-segments` option for HLS downloads
+
+### Changed
+
+- Assume binary payload for downloads with missing `Content-Type`
+- Use proxy and ssl config settings for requests made with `ffprobe`
+- The default `--concurrent-segments` changed from 50 (audio and subtitle streams) and 20 (video streams) to 10 for all cases
+
+### Fixed
+
+- `Invalid Content Type -  No content type in response headers` (turbo.cr)
+
+## [9.9.0] - 2026-05-12
+
+### Added
+
+- New `database transfer` subcommand to update a database file from an old CDL version to the newest schema
+
+### Fixed
+
+- All HTTP errors being reported as `generator didn't yield` errors
+- Do not override host of stream redirect URLs (Bunkr)
+
+## [9.8.1] - 2026-05-11
+
+### Changed
+
+- Do not probe duration of media files unless required by config
+
+### Fixed
+
+- `ffprobe not installed` error on non HLS downloads
+
+### Security
+
+- Force latest version of some transient dependencies to resolve CVE-2026-44431 and CVE-2026-44432
+
+## [9.8.0] - 2026-05-11
+
+### Added
+
+- New `--dump-responses` option to save non binary responses (text/HTML/JSON) to disk
+
+### Changed
+
+- Log downloads requests/responses
+- Log flaresolverr requests/responses
+- Prevent requests bursting at the start of a run
+
+### Deprecated
+
+- `--save-pages-html` will be removed on the next major release
+
+### Removed
+
+- Nekohouse support (No longer exists)
+
+### Fixed
+
+- Parsing of json responses from non Selenium forks of Flaresolverr
+- Flaresolverr session destruction always failing
+- Handle posts with deleted images (TikTok)
+- A single video download error canceling the entire scrape queue (LeakedZone/Hotleak)
+
+## [9.7.0] - 2026-05-07
+
+### Added
+
+- Coomerfans.com support
+
+### Removed
+
+- Using `--impersonate` without any value is no longer supported
+
+### Fixed
+
+- Typer error when using `--impersonate`
+- Do not crash on API errors (pCloud)
+
+## [9.6.0] - 2026-05-04
+
+### Changed
+
+- Show sorting stats again at the end of a run
+
+### Deprecated
+
+- Support for python 3.11 will be removed on the next major release
+
+### Fixed
+
+- CDL crashing cause it was trying to dedupe files outside the download folder
+
+## [9.5.1] - 2026-05-03
+
+### Fixed
+
+- Some previously downloaded URLs not being skipped
+
+## [9.5.0] - 2026-05-02
+
+### Changed
+
+- `--log-level` and `--console-log-level` now accept level names as valid values, ex: `INFO` or `WARNING`
+- An empty or null value for `--console-log-level` will use the same level as `--log-level`
+- For `--console-log-level`, values higger than 50 (`CRITICAL`) will be reset to `None`
+
+### Deprecated
+
+Several config options:
+
+CLI Only options:
+
+- `--completed-after`
+- `--completed-before`
+- `--download`, `--retry-all`, `--retry-failed`, `--retry-maintenance` options will be removed and replaced with dedicated subcommands
+
+Download Options:
+
+- `--disable-download-attempt-limit`
+- `--remove-generated-id-from-filenames`
+- `--scrape-single-forum-post`
+
+Logs
+
+- `--last-forum-post`
+
+RuntimeOptions:
+
+- `--update-last-forum-post`
+- Support for integers values with `--log-level` and `--console-log-level` will be removed on v10. They will only accept log level names
+
+Authentication entries for:
+
+- `Imgur.client_id` (no longer required)
+- `Kemono.session` (can be supplied by cookies)
+- `Coomer.session` (can be supplied by cookies)
+
+DupeCleanup:
+
+- `--add-md5-hash` and `--add-sha256-hash` will removed and merged into a single config option as a list of hashes to enable
+
+### Fixed
+
+- `--log-level` and `--console-log-level` being ignored
+- Skip empty files removal if the root folder no longer exists
+
+## [9.4.3] - 2026-05-01
+
+### Fixed
+
+- `CRITICAL` errors not being logged to the main log file
+
+## [9.4.2] - 2026-04-30
+
+### Changed
+
+- Send real referrer on reinforced downloads (Bunkr)
+- Improve performance of database lookups
+
+### Fixed
+
+- Location of `apprise.txt` (`AppData/Configs/Default/apprise.txt`)
+- Auto cookies extraction not creating any files
+
+## [9.4.1] - 2026-04-28
+
+### Changed
+
+- `--refresh-rate` now accepts fractions of a seconds as value (ex: 0.5)
+- Detect and bypass `AppData` virtualization when Python is installed from the Microsoft store
+
+### Fixed
+
+- `--refresh-rate` being ignored
+- `--ui` mode being ignored
+- Error decoding some filenames (bunkr)
+- Handle "server under maintenance" pages (Bunkr)
+- `bunkr.black` redirects always triggering DDosGuard (bunkr)
+- Parsing of API errors (RedGifs)
+- Bypass login check for 1080p+ videos (ePorner)
+- Empty name for some public files (MegaNZ)
+- Truncated errors on stats summary
+- Flaresolverr session destruction always failing
+
 ## [9.4.0] - 2026-04-23
 
 ### Added
@@ -109,6 +660,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ⚠️**IMPORTANT**
 
 > This version logs raw HTTP requests and responses to the main log file. They may include credentials, IP, etc. Remove personal information before sharing them or just extract the relevant logs
+>
 > Options to change log level are ignored. It will be fixed on a future version
 
 ### Added
@@ -118,7 +670,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OwnCloud support
 - Support premium URLs (MediaFire)
 - Support subfolders (Filester)
-- Add support for archives (.zip) files (ImagePond)
+- Support for archives (.zip) files (ImagePond)
 
 ### Changed
 
@@ -136,12 +688,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- All settings and UI options about changing configs have been removed. CDL will always use the default config at `AppData/Configs/Default/setting.yaml`. A different config can be specified only via CLI args (`--config-file`)
+- All settings and UI options about changing configs have been removed. CDL will always use the default config at `AppData/Configs/Default/settings.yaml`. A different config can be specified only via CLI args (`--config-file`)
 - The UI Option to export cookies has been removed
 
 ### Fixed
 
-- Download all videos on paginated playlists (50+ videos) (PMVHaven )
+- Download all videos on paginated playlists (50+ videos) (PMVHaven)
 - Handle deleted videos (TubeCorporate)
 - 404 downloads (Bunkr)
 - Update selectors for files with MD5 hashes instead of SHA256 (Filester)

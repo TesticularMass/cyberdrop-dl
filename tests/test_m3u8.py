@@ -1,10 +1,9 @@
-from datetime import timedelta
+import datetime
 from typing import LiteralString
 
 import pytest
 
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
-from cyberdrop_dl.exceptions import InvalidURLError
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.utils import m3u8
 
 
@@ -80,7 +79,7 @@ def m3u8_master_content2() -> LiteralString:
 
 
 @pytest.mark.parametrize(
-    "url, resolution, name",
+    ("url", "resolution", "name"),
     [
         ("https://example.com/4b4ef277/720p/video.m3u8", (1280, 720), "720p"),
         ("https://example.com/4b4ef277/1920x1080p/video.m3u8", (1920, 1080), "1080p"),
@@ -96,12 +95,12 @@ def test_get_resolution_from_url(url: str, resolution: tuple[int, int], name: st
 
 
 @pytest.mark.parametrize(
-    "url, exception",
+    ("url", "exception"),
     [
         ("https://example.com/780/playlist.m3u8", RuntimeError),
         ("https://example.com", RuntimeError),
-        ("/example.com", AttributeError),
-        ("", InvalidURLError),
+        ("/example.com", ValueError),
+        ("", ValueError),
     ],
 )
 def test_get_resolution_from_url_invalid_url(url: str, exception: type[Exception]) -> None:
@@ -110,7 +109,7 @@ def test_get_resolution_from_url_invalid_url(url: str, exception: type[Exception
 
 
 @pytest.mark.parametrize(
-    "codecs, result",
+    ("codecs", "result"),
     [
         ("avc1.4d401f,mp4a.40.2", ("avc1", "mp4a")),
         ("hvc1.1.6.L93.B0,mp4a.40.2", ("hevc", "mp4a")),
@@ -130,7 +129,7 @@ def test_codecs_parse(codecs: str, result: m3u8.Codecs) -> None:
 
 def test_m3u8(m3u8_content: str) -> None:
     m3u8_obj = m3u8.M3U8(m3u8_content)
-    assert m3u8_obj.total_duration == timedelta(seconds=28.5)
+    assert m3u8_obj.total_duration == datetime.timedelta(seconds=28.5)
     assert not m3u8_obj.is_variant
     with pytest.raises(AssertionError):
         m3u8.VariantM3U8Parser(m3u8_obj)

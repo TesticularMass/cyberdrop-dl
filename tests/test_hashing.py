@@ -2,16 +2,15 @@ from __future__ import annotations
 
 import sqlite3
 from collections import Counter
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Literal
 
 import pytest
 
-from cyberdrop_dl.clients.hash_client import hash_directory_scanner
+from cyberdrop_dl.hasher import Hasher, _compute_hash, hash_directory
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
-    from cyberdrop_dl.managers.manager import Manager
+    from cyberdrop_dl.manager import Manager
 
 
 def get_hashes(path: Path) -> set[tuple[str, str]]:
@@ -49,20 +48,51 @@ def create_files(path: Path, number: int) -> None:
         },
     ],
 )
-def test_hash_directory_scanner(manager: Manager, expected_results: set[tuple[str, str]]) -> None:
+async def test_hash_directory_scanner(manager: Manager, expected_results: set[tuple[str, str]]) -> None:
     count = Counter(x[0] for x in expected_results)
     n_files = max(count.values())
     algos = count.keys()
     assert len(expected_results) == len(algos) * n_files
-    manager.config.dupe_cleanup_options.add_md5_hash = "md5" in algos
-    manager.config.dupe_cleanup_options.add_sha256_hash = "sha256" in algos
+    options = manager.config.hashing
+    options.algorithms = tuple(algos)  # pyright: ignore[reportAttributeAccessIssue]
+    options.re_compute()
 
-    manager.path_manager.download_folder.mkdir(parents=True)
-    db_path = manager.path_manager.history_db
-    hash_directory_scanner(manager, manager.path_manager.download_folder)
+    manager.config.download_folder.mkdir(parents=True)
+    db_path = manager.appdata.db_file
+    await hash_directory(Hasher.create(manager.config, manager.database))
     assert not get_hashes(db_path)
-    create_files(manager.path_manager.download_folder, n_files)
-    hash_directory_scanner(manager, manager.path_manager.download_folder)
+    create_files(manager.config.download_folder, n_files)
+    await hash_directory(Hasher.create(manager.config, manager.database))
     results = get_hashes(db_path)
     assert len(results) == len(expected_results)
     assert results == expected_results
+
+
+async def test_hash_directory_does_not_crash_with_subfolders(tmp_cwd: Path, manager: Manager) -> None:
+    options = manager.config.hashing
+    options.algorithms = "md5", "sha256"
+    options.re_compute()
+    hash_folder = tmp_cwd / "sorted_downloads"
+    here = Path(__file__).parent
+    files = [hash_folder / f.relative_to(here) for f in here.rglob("*") if f.is_file()]
+    assert len(files) >= 10
+    for file in files:
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.touch()
+    await hash_directory(Hasher.create(manager.config, manager.database, hash_folder))
+
+
+@pytest.mark.parametrize(
+    ("algo", "expected"),
+    [
+        ("xxh128", "ae6ea5d955361e9dd7d91f1432616dcc"),
+        ("md5", "1ebbd3e34237af26da5dc08a4e440464"),
+        ("sha256", "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"),
+    ],
+)
+def test_compute_hash(tmp_cwd: Path, algo: Literal["xxh128", "md5", "sha256"], expected: str) -> None:
+    license_file = Path(__file__).parent.parent / "LICENSE"
+    file = tmp_cwd / "license"
+    file.write_bytes(license_file.read_text("utf8").encode())  # Remove windows EOL
+    result = _compute_hash(file, algo)
+    assert result == expected

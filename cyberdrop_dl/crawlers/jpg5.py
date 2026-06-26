@@ -3,20 +3,23 @@ from __future__ import annotations
 import base64
 from typing import TYPE_CHECKING, ClassVar, Final
 
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL, ScrapeItem
-from cyberdrop_dl.utils.utilities import error_handling_wrapper, xor_decrypt
+from cyberdrop_dl.url_objects import AbsoluteHttpURL, ScrapeItem
+from cyberdrop_dl.utils import xor_decrypt
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 from ._chevereto import CheveretoCrawler
 
 if TYPE_CHECKING:
+    import yarl
+
     from cyberdrop_dl.crawlers.crawler import RateLimit, SupportedDomains
 
-_CDN: Final = "selti-delivery.ru"
+_CDN: Final = "cuckcapital.cr"
 _DECRYPTION_KEY: Final = b"seltilovessimpcity@simpcityhatesscrapers"
 
 
 class JPG5Crawler(CheveretoCrawler):
-    SUPPORTED_DOMAINS: ClassVar[SupportedDomains] = "selti-delivery.ru", "jpg7.cr", "jpg6.su"
+    SUPPORTED_DOMAINS: ClassVar[SupportedDomains] = "selti-delivery.ru", "jpg7.cr", "jpg6.su", _CDN
     DOMAIN: ClassVar[str] = "jpg5.su"
     FOLDER_DOMAIN: ClassVar[str] = "JPG5"
     PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://jpg6.su")
@@ -48,25 +51,29 @@ class JPG5Crawler(CheveretoCrawler):
 
     @error_handling_wrapper
     async def direct_file(
-        self, scrape_item: ScrapeItem, url: AbsoluteHttpURL | None = None, assume_ext: str | None = None
+        self, scrape_item: ScrapeItem, /, url: AbsoluteHttpURL | None = None, assume_ext: str | None = None
     ) -> None:
-        link = url or scrape_item.url
-
-        if self.is_subdomain(link) and not link.host.endswith(_CDN):
-            server, *_ = link.host.rsplit(".", 2)
-            link = link.with_host(f"{server}.{_CDN}")
-
+        link = _fix_cdn(url or scrape_item.url)
         await super().direct_file(scrape_item, link, assume_ext)
 
+    @classmethod
     def parse_url(
-        self, link_str: str, relative_to: AbsoluteHttpURL | None = None, *, trim: bool | None = None
+        cls, link_str: yarl.URL | str, relative_to: AbsoluteHttpURL | None = None, *, trim: bool | None = None
     ) -> AbsoluteHttpURL:
-        if not link_str.startswith("https") and not link_str.startswith("/"):
-            encrypted_url = bytes.fromhex(base64.b64decode(link_str).decode())
-            link_str = xor_decrypt(encrypted_url, _DECRYPTION_KEY)
-        return super().parse_url(link_str, relative_to, trim=trim)
+        if type(link_str) is str:
+            link_str = _decode_url(link_str)
+        return _fix_cdn(super().parse_url(link_str, relative_to, trim=trim))
 
 
-def fix_db_referer(referer: str) -> str:
-    url = AbsoluteHttpURL(referer)
-    return str(JPG5Crawler.transform_url(url))
+def _decode_url(url: str) -> str:
+    if url.startswith(("https:", "http:", "/")):
+        return url
+    encrypted_url = bytes.fromhex(base64.b64decode(url).decode())
+    return xor_decrypt(encrypted_url, _DECRYPTION_KEY)
+
+
+def _fix_cdn(url: AbsoluteHttpURL) -> AbsoluteHttpURL:
+    if JPG5Crawler.is_subdomain(url) and not url.host.endswith(_CDN):
+        server, *_ = url.host.rsplit(".", 2)
+        return url.with_host(f"{server}.{_CDN}")
+    return url

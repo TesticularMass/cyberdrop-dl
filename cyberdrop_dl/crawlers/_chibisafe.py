@@ -16,30 +16,27 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from pydantic import Field
 
 from cyberdrop_dl.crawlers.crawler import Crawler
-from cyberdrop_dl.models import AliasModel
-from cyberdrop_dl.utils.dates import to_timestamp
-from cyberdrop_dl.utils.utilities import error_handling_wrapper, type_adapter
+from cyberdrop_dl.models import DeferredModel
+from cyberdrop_dl.utils.dataclass import DictDataclass
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
     from cyberdrop_dl.crawlers.crawler import SupportedPaths
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 @dataclasses.dataclass(slots=True)
-class File:
+class File(DictDataclass):
     name: str
     url: str
     createdAt: datetime.datetime | None = None  # noqa: N815
     original: str | None = None
 
 
-class Album(AliasModel):
+class Album(DeferredModel):
     id: str = ""
     name: str = Field(validation_alias="title")
     files: list[File]
-
-
-_parse_file = type_adapter(File)
 
 
 class ChibiSafeCrawler(Crawler, is_abc=True):
@@ -60,7 +57,7 @@ class ChibiSafeCrawler(Crawler, is_abc=True):
     @error_handling_wrapper
     async def file(self, scrape_item: ScrapeItem, file_id: str) -> None:
         content: dict[str, Any] = await self.request_json(self.PRIMARY_URL / "api/file" / file_id)
-        file = _parse_file(content)
+        file = File.from_dict(content)
         self._handle_file(scrape_item, file)
 
     @error_handling_wrapper
@@ -85,8 +82,8 @@ class ChibiSafeCrawler(Crawler, is_abc=True):
 
     @error_handling_wrapper
     def _handle_file(self, scrape_item: ScrapeItem, file: File) -> None:
-        if scrape_item.possible_datetime is None and file.createdAt:
-            scrape_item.possible_datetime = to_timestamp(file.createdAt)
+        if scrape_item.uploaded_at is None and file.createdAt:
+            scrape_item.upload_date = file.createdAt
         name = file.original or file.name
         filename, ext = self.get_filename_and_ext(name)
         self.create_task(

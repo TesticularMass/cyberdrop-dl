@@ -5,15 +5,14 @@ import json
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.exceptions import ScrapeError
-from cyberdrop_dl.utils.logger import log_debug
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 GRAPHQL_URL = AbsoluteHttpURL("https://members.luscious.net/graphql/nobatch/")
@@ -24,12 +23,10 @@ GRAPHQL_QUERIES = {
     "AlbumListWithPeek": "query AlbumListWithPeek($input: AlbumListInput!) {\n    album {\n        list(input: $input) {\n            info {\n                ...FacetCollectionInfo\n            }\n            items {\n                ...AlbumMinimal\n                peek_thumbnails {\n                    width\n                    height\n                    size\n                    url\n                }\n            }\n        }\n    }\n}\n\nfragment FacetCollectionInfo on FacetCollectionInfo {\n    page\n    has_next_page\n    has_previous_page\n    total_items\n    total_pages\n    items_per_page\n    url_complete\n    url_filters_only\n}\n\nfragment AlbumMinimal on Album {\n    __typename\n    id\n    title\n    labels\n    description\n    created\n    modified\n    number_of_favorites\n    number_of_pictures\n    slug\n    is_manga\n    url\n    download_url\n    cover {\n        width\n        height\n        size\n        url\n    }\n    content {\n        id\n        title\n        url\n    }\n    language {\n        id\n        title\n        url\n    }\n    tags {\n        id\n        category\n        text\n        url\n        count\n    }\n    genres {\n        id\n        title\n        slug\n        url\n    }\n    audiences {\n        id\n        title\n        url\n    }\n}",
 }
 
-PRIMARY_URL = AbsoluteHttpURL("https://members.luscious.net")
-
 
 class LusciousCrawler(Crawler):
     SUPPORTED_PATHS: ClassVar[SupportedPaths] = {"Album": "/albums/..."}
-    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = PRIMARY_URL
+    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://members.luscious.net")
     DOMAIN: ClassVar[str] = "luscious"
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
@@ -59,10 +56,10 @@ class LusciousCrawler(Crawler):
 
         elif operation == "AlbumListWithPeek":
             sorting = query.get("display", "date_newest")
-            filters = [{"name": i, "value": v} for i, v in query.items() if i not in ("page", "display", "q")]
+            filters = [{"name": i, "value": v} for i, v in query.items() if i not in {"page", "display", "q"}]
             data["variables"] = {"input": {"display": sorting, "filters": filters, "page": page}}
 
-        log_debug(data)
+        self.log.debug(data)
         return json.dumps(data)
 
     @error_handling_wrapper
@@ -98,7 +95,7 @@ class LusciousCrawler(Crawler):
                 new_scrape_item = scrape_item.create_child(url=album_url)
                 await self.album(new_scrape_item)
 
-    async def _pager(self, scrape_item: ScrapeItem, is_album: bool = False) -> AsyncGenerator[list[dict[str, Any]]]:
+    async def _pager(self, scrape_item: ScrapeItem, *, is_album: bool = False) -> AsyncGenerator[list[dict[str, Any]]]:
         """Generator for album pages."""
         initial_page = int(scrape_item.url.query.get("page", 1))
         query_name = "PictureListInsideAlbum" if is_album else "AlbumListWithPeek"
@@ -118,5 +115,5 @@ class LusciousCrawler(Crawler):
             data=query,
             headers={"Content-Type": "application/json"},
         )
-        log_debug(json_resp)
+        self.log.debug(json_resp)
         return json_resp

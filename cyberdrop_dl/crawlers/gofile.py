@@ -1,24 +1,25 @@
 from __future__ import annotations
 
-import asyncio
+import hashlib
 import itertools
-import re
-from hashlib import sha256
-from typing import TYPE_CHECKING, ClassVar, Literal, NotRequired, ReadOnly, TypedDict, TypeGuard
+import time
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, NotRequired, TypedDict, TypeGuard
 
+from typing_extensions import ReadOnly
+
+from cyberdrop_dl import env
+from cyberdrop_dl.cache import disk_cached_method
 from cyberdrop_dl.crawlers.crawler import Crawler, RateLimit, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import FILE_HOST_ALBUM, AbsoluteHttpURL, ScrapeItem
 from cyberdrop_dl.exceptions import PasswordProtectedError, ScrapeError
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.url_objects import AbsoluteHttpURL, ScrapeItem, ScrapeItemType
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Iterable
 
 
 _API_ENTRYPOINT = AbsoluteHttpURL("https://api.gofile.io")
-_GLOBAL_JS_URL = AbsoluteHttpURL("https://gofile.io/dist/js/config.js")
 _PRIMARY_URL = AbsoluteHttpURL("https://gofile.io")
-_PER_PAGE: int = 1000
 
 
 class Response(TypedDict):
@@ -45,11 +46,6 @@ class File(UnlockedNode):
     viruses: NotRequired[bool]
     md5: str
 
-    # parentFolder: str
-    # size: int
-    # downloadCount: int
-    # thumbnail: str
-
 
 class Folder(UnlockedNode):
     type: Literal["folder"]
@@ -58,22 +54,6 @@ class Folder(UnlockedNode):
     children: dict[str, Node]
     password: NotRequired[str]
     passwordStatus: NotRequired[str]
-
-    # isRoot: NotRequired[bool]
-
-
-class FolderMetadata(TypedDict):
-    hasNextPage: bool
-
-    # totalCount: int
-    # totalPages: int
-    # page: int
-    # pageSize: int
-
-
-class FolderResponse(Response):
-    data: Folder
-    metadata: FolderMetadata
 
 
 class GoFileCrawler(Crawler):
@@ -93,18 +73,43 @@ class GoFileCrawler(Crawler):
     FOLDER_DOMAIN: ClassVar[str] = "GoFile"
     _RATE_LIMIT: ClassVar[RateLimit] = 4, 10
 
+    _SALT: ClassVar[str] = env.GOFILE_SALT or "9844d94d963d30"
+    _BROWSER_LANG: ClassVar[str] = "en-US"
+
     def __post_init__(self) -> None:
-        self.headers: dict[str, str] = {}
+        self._api_key: str = ""
+
+    @property
+    def headers(self) -> dict[str, str]:
+        headers = {
+            "User-Agent": (ua := self.config.network.user_agent),
+            "Origin": "https://gofile.io",
+            "Referer": "https://gofile.io/",
+        }
+        if self._api_key:
+            headers |= {
+                "Authorization": f"Bearer {self._api_key}",
+                "X-BL": self._BROWSER_LANG,
+                "X-Website-Token": _create_web_token(
+                    ua,
+                    self._BROWSER_LANG,
+                    self._api_key,
+                    self._SALT,
+                ),
+            }
+
+        return headers
 
     @classmethod
-    def _json_response_check(cls, json_resp: Response) -> None:
-        if not isinstance(json_resp, dict):
-            return
+    def __json_resp_check__(cls, json_resp: dict[str, Any], _=None) -> None:
         if "notFound" in json_resp["status"]:
             raise ScrapeError(404)
 
-    async def async_startup(self) -> None:
+    async def __async_post_init__(self) -> None:
         await self._get_credentials(_API_ENTRYPOINT)
+
+    def _prepare_headers(self, scrape_item: ScrapeItem) -> dict[str, str]:
+        return super()._prepare_headers(scrape_item) | {"Authorization": f"Bearer {self._api_key}"}
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         match scrape_item.url.parts[1:]:
@@ -155,15 +160,14 @@ class GoFileCrawler(Crawler):
             self._handle_children(scrape_item, children.values())
 
     def _handle_children(self, scrape_item: ScrapeItem, children: Iterable[Node]) -> None:
-        def get_website_url(node: Node) -> AbsoluteHttpURL:
+        def web_url(node: Node) -> AbsoluteHttpURL:
             node_id = node["id"]
             if node["type"] == "folder":
                 return _PRIMARY_URL / "d" / (node.get("code") or node_id)
             return scrape_item.url.with_fragment(node_id)
 
         for node in children:
-            web_url = get_website_url(node)
-            new_scrape_item = scrape_item.create_new(web_url, add_parent=True)
+            new_scrape_item = scrape_item.create_new(web_url(node), add_parent=True)
             self._handle_node(new_scrape_item, node)
             scrape_item.add_children()
 
@@ -176,15 +180,20 @@ class GoFileCrawler(Crawler):
         self.create_task(coro)
 
     async def _folder_pager(self, content_id: str, password: str | None = None) -> AsyncGenerator[Folder]:
-        api_url = (_API_ENTRYPOINT / "contents" / content_id).with_query(pageSize=_PER_PAGE)
+        api_url = (_API_ENTRYPOINT / "contents" / content_id).with_query(
+            contentFilter="",
+            sortField="name",
+            sortDirection=1,
+            pageSize=1_000,
+        )
 
         if password:
-            sha256_password = sha256(password.encode()).hexdigest()
+            sha256_password = hashlib.sha256(password.encode(), usedforsecurity=False).hexdigest()
             api_url = api_url.update_query(password=sha256_password)
 
         for page in itertools.count(1):
             resp = await self.request_json(api_url.update_query(page=page), headers=self.headers)
-            self._json_response_check(resp)
+            self.__json_resp_check__(resp)
             folder = resp["data"]
             _check_node_is_accessible(folder)
             yield folder
@@ -204,41 +213,34 @@ class GoFileCrawler(Crawler):
             return
 
         if file.get("isFrozen"):
-            self.log(f"{link} is marked as frozen, download may fail", 30)
+            self.log.warning(f"{link} is marked as frozen, download may fail")
 
         filename, ext = self.get_filename_and_ext(file["name"], mime_type=file.get("mimetype"))
-        scrape_item.possible_datetime = file["createTime"]
+        scrape_item.uploaded_at = file["createTime"]
         await self.handle_file(link, scrape_item, file["name"], ext, custom_filename=filename, metadata=file)
 
     @error_handling_wrapper
     async def _get_credentials(self, _) -> None:
-        """Gets the token for the API."""
-        with self.disable_on_error("Unable to get website token"):
-            api_key, token = await asyncio.gather(self._get_api_key(), self._get_website_token())
-            self.headers = {"Authorization": f"Bearer {api_key}", "X-Website-Token": token}
-            self.update_cookies({"accountToken": api_key})
+        with self.disable_on_error("Unable to get api_key"):
+            if key := self.config.auth.gofile.api_key:
+                self._api_key = key
+            else:
+                self._api_key = await self._create_temp_account()
+            self.update_cookies({"accountToken": self._api_key})
 
-    async def _get_api_key(self) -> str:
-        if key := self.manager.auth_config.gofile.api_key:
-            return key
-
+    @disk_cached_method(key="account_token", ttl=86400 * 60)
+    async def _create_temp_account(self) -> str:
+        self.log.info("Creating temp account")
         api_url = _API_ENTRYPOINT / "accounts"
-        json_resp = await self.request_json(api_url, method="POST", data={})
+        json_resp = await self.request_json(api_url, method="POST", data={}, headers=self.headers)
         if json_resp["status"] != "ok":
-            raise ScrapeError(401, "Couldn't generate GoFile API token", origin=api_url)
+            raise ScrapeError(401, "Couldn't generate GoFile temp account", origin=api_url)
 
         return json_resp["data"]["token"]
 
-    async def _get_website_token(self) -> str:
-        text = await self.request_text(_GLOBAL_JS_URL)
-        if match := re.search(r'appdata\.wt\s=\s"([^"]+)"', text):
-            return match.group(1)
-
-        raise ScrapeError(401, "Couldn't generate GoFile websiteToken", origin=_GLOBAL_JS_URL)
-
 
 def _check_node_is_accessible(node: Node) -> TypeGuard[File | Folder]:
-    if (type_ := node["type"]) not in ("file", "folder"):
+    if (type_ := node["type"]) not in {"file", "folder"}:
         raise ScrapeError(f"Unknown node type: {type_}")
 
     if node.get("viruses"):
@@ -259,4 +261,12 @@ def _check_node_is_accessible(node: Node) -> TypeGuard[File | Folder]:
 
 
 def _has_single_not_nested_file(scrape_item: ScrapeItem, folder: Folder) -> bool:
-    return folder["childrenCount"] == 1 and folder["name"] == folder["code"] and scrape_item.type != FILE_HOST_ALBUM
+    return (
+        folder["childrenCount"] == 1 and folder["name"] == folder["code"] and scrape_item.type != ScrapeItemType.ALBUM
+    )
+
+
+def _create_web_token(user_agent: str, brower_lang: str, api_key: str, salt: str) -> str:
+    # https://gofile.io/dist/js/wt.obf.js
+    token = f"{user_agent}::{brower_lang}::{api_key}::{int(time.time() // 14400)}::{salt}"
+    return hashlib.sha256(token.encode()).hexdigest()

@@ -3,12 +3,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.utils import css
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 class Selector:
@@ -32,20 +32,20 @@ class MasahubCrawler(Crawler):
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         if query := scrape_item.url.query.get("s"):
             return await self.search(scrape_item, query)
-        elif len(scrape_item.url.parts) >= 2:
+        if len(scrape_item.url.parts) >= 2:
             return await self.video(scrape_item)
         raise ValueError
 
     @error_handling_wrapper
     async def video(self, scrape_item: ScrapeItem) -> None:
-        if await self.check_complete_from_referer(scrape_item):
-            return
+        if await self.check_complete_from_referer(scrape_item.url):
+            return None
 
         soup = await self.request_soup(scrape_item.url)
         link = self.parse_url(Selector.VIDEO_SRC(soup))
         title = css.select_text(soup, Selector.TITLE)
         _, ext = self.get_filename_and_ext(link.name)
-        scrape_item.possible_datetime = self.parse_iso_date(css.get_json_ld_date(soup))
+        scrape_item.uploaded_at = self.parse_iso_date(css.json_ld(soup)["uploadDate"])
         custom_filename = self.create_custom_filename(title, ext)
         return await self.handle_file(link, scrape_item, link.name, ext, custom_filename=custom_filename)
 
@@ -54,5 +54,5 @@ class MasahubCrawler(Crawler):
         title = self.create_title(query)
         scrape_item.setup_as_album(title)
         async for soup in self.web_pager(scrape_item.url):
-            for _, new_scrape_item in self.iter_children(scrape_item, soup, Selector.VIDEOS):
+            for new_scrape_item in self.iter_children(scrape_item, soup, Selector.VIDEOS):
                 self.create_task(self.run(new_scrape_item))

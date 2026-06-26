@@ -1,22 +1,24 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import timedelta
+import dataclasses
+import datetime
+import logging
 from enum import StrEnum
-from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 import m3u8.model
 from m3u8 import M3U8 as _M3U8
 from m3u8 import Media, Playlist
 
-from cyberdrop_dl.data_structures.mediaprops import Codecs, Resolution
-from cyberdrop_dl.utils.utilities import parse_url
+from cyberdrop_dl.mediaprops import Codecs, Resolution
+from cyberdrop_dl.utils import parse_url
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterable
+    from collections.abc import Generator, Iterable, Iterator
 
-    from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
+    from cyberdrop_dl.url_objects import AbsoluteHttpURL
+
+logger = logging.getLogger(__name__)
 
 
 class MediaType(StrEnum):
@@ -29,7 +31,7 @@ class MediaType(StrEnum):
 class MediaList(list[Media]):
     def filter_by(
         self,
-        type: MediaType | str | None = None,
+        type: MediaType | str | None = None,  # noqa: A002
         group_id: str | None = None,
         language: str | None = None,
         name: str | None = None,
@@ -42,7 +44,7 @@ class MediaList(list[Media]):
 
     def filter(
         self,
-        type: MediaType | str | None = None,
+        type: MediaType | str | None = None,  # noqa: A002
         group_id: str | None = None,
         language: str | None = None,
         name: str | None = None,
@@ -66,13 +68,17 @@ class MediaURLs(NamedTuple):
     subtitle: AbsoluteHttpURL | None
 
 
-class RenditionGroup(NamedTuple):
+@dataclasses.dataclass(slots=True)
+class Rendition:
     video: M3U8
-    audio: M3U8 | None = None
-    subtitle: M3U8 | None = None
+    audio: M3U8 | None
+    subtitle: M3U8 | None
+
+    def __iter__(self) -> Iterator[M3U8 | None]:
+        return iter(dataclasses.astuple(self))
 
 
-@dataclass(frozen=True, slots=True, order=True)
+@dataclasses.dataclass(frozen=True, slots=True, order=True)
 class StreamInfo:
     """Exactly the same as m3u8.model.StreamInfo but as a dataclass, to support sorting rendition groups with the same resolution but different bitrates (bandwidth)"""
 
@@ -95,16 +101,19 @@ class StreamInfo:
     __str__ = m3u8.model.StreamInfo.__str__
 
 
-@dataclass(frozen=True, slots=True, order=True)
-class RenditionGroupDetails:
+@dataclasses.dataclass(frozen=True, slots=True, order=True)
+class RenditionDetails:
     resolution: Resolution
     codecs: Codecs
     stream_info: StreamInfo
     media: MediaList
     urls: MediaURLs
 
+    def __json__(self) -> dict[str, Any]:
+        return {"stream": dataclasses.asdict(self.stream_info), "urls": self.urls._asdict()}
+
     @staticmethod
-    def new(playlist: Playlist) -> RenditionGroupDetails:
+    def new(playlist: Playlist) -> RenditionDetails:
         assert playlist.uri
 
         def get_url(m3u8_obj: Playlist | Media) -> AbsoluteHttpURL:
@@ -131,7 +140,7 @@ class RenditionGroupDetails:
 
         media_urls = MediaURLs(video_url, audio_url, subtitle_url)
         stream_info = StreamInfo(**vars(playlist.stream_info))
-        return RenditionGroupDetails(resolution, codecs, stream_info, media, media_urls)
+        return RenditionDetails(resolution, codecs, stream_info, media, media_urls)
 
 
 class M3U8(_M3U8):
@@ -139,35 +148,53 @@ class M3U8(_M3U8):
         self,
         content: str,
         base_uri: AbsoluteHttpURL | None = None,
-        media_type: Literal["video", "audio", "subtitles"] | None = None,
+        media_type: Literal["video", "audio", "subtitle"] | None = None,
     ) -> None:
         if base_uri and base_uri.suffix.casefold() == ".m3u8":
             base_uri = base_uri.parent
-        self.media_type: Literal["video", "audio", "subtitles"] | None = media_type
+        self.media_type: Literal["video", "audio", "subtitle"] | None = media_type
         super().__init__(content, base_uri=str(base_uri) if base_uri else None)
+
+    @property
+    def total_segments(self) -> int:
+        return len(self.segment_map) + len(self.segments)
 
     def __repr__(self) -> str:
         return (
             f"{type(self)}(media_type={self.media_type!r}, base_uri={self.base_uri!r}, is_variant={self.is_variant!r})"
         )
 
-    @cached_property
-    def total_duration(self) -> timedelta:
+    @property
+    def total_duration(self) -> datetime.timedelta:
         total_duration: float = sum(duration for segment in self.segments if (duration := segment.duration))
-        return timedelta(seconds=total_duration)
+        return datetime.timedelta(seconds=total_duration)
 
 
+class _LazyRenditionLog:
+    def __init__(self, groups: list[RenditionDetails]) -> None:
+        self.groups = groups
+
+    def __json__(self) -> tuple[dict[str, Any], ...]:
+        return tuple(rendition.__json__() for rendition in self.groups)
+
+    def __str__(self) -> str:
+        return str(self.__json__())
+
+
+@dataclasses.dataclass(slots=True)
 class VariantM3U8Parser:
     """Parses groups inside a variant M3U8"""
 
-    def __init__(self, m3u8: M3U8) -> None:
-        assert m3u8.is_variant
-        self._m3u8 = m3u8
-        self.groups = sorted((RenditionGroupDetails.new(playlist) for playlist in m3u8.playlists), reverse=True)
+    _m3u8: M3U8
+    groups: list[RenditionDetails] = dataclasses.field(init=False)
+
+    def __post_init__(self) -> None:
+        assert self._m3u8.is_variant
+        self.groups = sorted((RenditionDetails.new(playlist) for playlist in self._m3u8.playlists), reverse=True)
 
     def get_rendition_groups(
         self, only: Iterable[str] = (), *, exclude: Iterable[str] = ()
-    ) -> Generator[RenditionGroupDetails]:
+    ) -> Generator[RenditionDetails]:
         """Yields M3U8 options, best to worst"""
         assert not (only and exclude), "only one of `only` or `exclude` can be supplied, not both"
         if isinstance(exclude, str):
@@ -183,13 +210,14 @@ class VariantM3U8Parser:
                     continue
             yield group
 
-    def get_best_group(self, only: Iterable[str] = (), *, exclude: Iterable[str] = ()) -> RenditionGroupDetails:
+    def get_best_group(self, only: Iterable[str] = (), *, exclude: Iterable[str] = ()) -> RenditionDetails:
+        logger.debug("Available renditions from %s:\n%s", self._m3u8.base_uri, _LazyRenditionLog(self.groups))
         return next(self.get_rendition_groups(only=only, exclude=exclude))
 
 
-def get_best_group_from_playlist(
+def select_best_rendition(
     m3u8_playlist: M3U8, only: Iterable[str] = (), *, exclude: Iterable[str] = ()
-) -> RenditionGroupDetails:
+) -> RenditionDetails:
     return VariantM3U8Parser(m3u8_playlist).get_best_group(only=only, exclude=exclude)
 
 

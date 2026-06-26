@@ -9,18 +9,18 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedDomains, SupportedPaths, auto_task_id
-from cyberdrop_dl.data_structures import AbsoluteHttpURL
-from cyberdrop_dl.data_structures.mediaprops import Resolution, Subtitle
 from cyberdrop_dl.exceptions import ScrapeError
-from cyberdrop_dl.utils import m3u8, open_graph
-from cyberdrop_dl.utils.utilities import error_handling_wrapper, parse_url
+from cyberdrop_dl.mediaprops import Resolution, Subtitle
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.utils import m3u8, open_graph, parse_url
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
     from bs4 import BeautifulSoup
 
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 _find_js_redirect = re.compile(
@@ -46,7 +46,7 @@ _ISO639_MAP = {
 
 _HEADERS: dict[str, str] = {
     "User-Agent":  # Force firefox on linux to get high res mp4 formats as "fallbacks"
-    "Mozilla/5.0 (X11; Linux x86_64; rv:143.0) Gecko/20100101 Firefox/143.0"
+    "Mozilla/5.0 (X11; Linux x86_64; rv:150.0) Gecko/20100101 Firefox/150.0"
 }
 
 
@@ -93,11 +93,7 @@ class VoeSxCrawler(Crawler):
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         match scrape_item.url.parts[1:]:
-            case ["e", video_id]:
-                return await self.embed(scrape_item, video_id)
-            case [video_id, "download"]:
-                return await self.embed(scrape_item, video_id)
-            case [video_id]:
+            case ["e", video_id] | [video_id, "download"] | [video_id]:
                 return await self.embed(scrape_item, video_id)
             case _:
                 raise ValueError
@@ -113,7 +109,7 @@ class VoeSxCrawler(Crawler):
             text = await resp.text()
             if match := _find_js_redirect(text):
                 scrape_item.url = self.parse_url(match.group(1), origin)
-                self.create_task(self.redirect(scrape_item))
+                self.create_task(self._redirect(scrape_item))
                 return
 
         soup = await resp.soup()
@@ -127,15 +123,13 @@ class VoeSxCrawler(Crawler):
         m3u8 = None
         if video.resolution == (0, 0) and video.hls_url:
             msg = f"Unable to extract high resolution MP4 formats for {scrape_item.url}. Falling back to HLS"
-            self.log(msg, 30)
+            self.log.warning(msg)
 
-            m3u8 = await self.get_m3u8_from_index_url(video.hls_url, headers=_HEADERS)
+            m3u8, _ = await self.request_m3u8(video.hls_url, headers=_HEADERS)
 
         VoeSxCrawler._handle_video(self, scrape_item, video, m3u8)
 
-    def _handle_video(
-        self: Crawler, scrape_item: ScrapeItem, video: VoeVideo, m3u8: m3u8.RenditionGroup | None
-    ) -> None:
+    def _handle_video(self: Crawler, scrape_item: ScrapeItem, video: VoeVideo, m3u8: m3u8.Rendition | None) -> None:
         custom_filename = self.create_custom_filename(
             video.title,
             video.url.suffix,
@@ -156,7 +150,7 @@ class VoeSxCrawler(Crawler):
 
         self.handle_subs(scrape_item, custom_filename, video.subtitles)
 
-    redirect = auto_task_id(fetch)
+    _redirect = auto_task_id(fetch)
 
 
 def extract_voe_video(soup: BeautifulSoup, origin: AbsoluteHttpURL) -> VoeVideo:
@@ -181,15 +175,16 @@ def extract_voe_video(soup: BeautifulSoup, origin: AbsoluteHttpURL) -> VoeVideo:
 
 def _load_json(json_content: str) -> Any:
     if not json_content:
-        return
+        return None
 
     try:
         data = json.loads(json_content)
-        if isinstance(data, list) and len(data) == 1:
-            return _decrypt_json(data[0])
-        return data
+        if type(data) is list and len(data) == 1:
+            data = _decrypt_json(data[0])
     except json.JSONDecodeError:
-        return
+        return None
+    else:
+        return data
 
 
 def _decrypt_json(encrypted_json: str) -> Any:
@@ -199,7 +194,7 @@ def _decrypt_json(encrypted_json: str) -> Any:
         try:
             return base64.b64decode(b64_string).decode("utf-8", errors="replace")
         except ValueError:
-            return
+            return None
 
     def shift(string: str, n: int) -> str:
         return "".join(chr(ord(char) - n) for char in string)
@@ -207,15 +202,15 @@ def _decrypt_json(encrypted_json: str) -> Any:
     step_1 = codecs.decode(encrypted_json, "rot13")
     step_2 = b64_decode(step_1)
     if not step_2:
-        return
+        return None
     step_3 = shift(step_2, n=3)
     step_4 = b64_decode(step_3[::-1])
     if not step_4:
-        return
+        return None
     try:
         return json.loads(step_4)
     except json.JSONDecodeError:
-        return
+        return None
 
 
 def _extract_mp4_urls(
@@ -245,7 +240,7 @@ def _parse_subs(video_info: dict[str, Any], origin: AbsoluteHttpURL) -> Generato
 
 def _parse_lang_code(name: str, label: str) -> str:
     code = Path(name).stem.rpartition("_")[-1]
-    if len(code) in (2, 3):
+    if len(code) in {2, 3}:
         return code
 
     label = label.casefold()

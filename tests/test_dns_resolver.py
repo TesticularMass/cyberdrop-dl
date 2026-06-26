@@ -1,57 +1,41 @@
-import sys
-import types
-from unittest import mock
+import asyncio
+import os
+import ssl
 
 import pytest
-from aiohttp import resolver
+import truststore
+from aiohttp.resolver import AsyncResolver, ThreadedResolver
 
-from cyberdrop_dl import constants
-from cyberdrop_dl.managers import client_manager
-
-
-@pytest.mark.asyncio
-async def test_test_async_resolver_uses_loopless_aiodns_api() -> None:
-    class FakeDNSResolver:
-        def __init__(self, *args, **kwargs) -> None:
-            assert "loop" not in kwargs
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return False
-
-        async def query_dns(self, *args, **kwargs):
-            return []
-
-    original_aiodns = sys.modules.get("aiodns")
-    sys.modules["aiodns"] = types.SimpleNamespace(DNSResolver=FakeDNSResolver)
-    try:
-        await client_manager._test_async_resolver()
-    finally:
-        if original_aiodns is None:
-            sys.modules.pop("aiodns", None)
-        else:
-            sys.modules["aiodns"] = original_aiodns
+from cyberdrop_dl.clients import tcp
 
 
-@pytest.mark.asyncio
-async def test_dns_resolver_should_be_async_on_windows_macos_and_linux() -> None:
-    constants.DNS_RESOLVER = None
-
-    with mock.patch(
-        "cyberdrop_dl.managers.client_manager._test_async_resolver",
-        new=mock.AsyncMock(return_value=None),
-    ) as test_async_resolver:
-        await client_manager._set_dns_resolver()
-
-    test_async_resolver.assert_awaited_once_with()
-    assert constants.DNS_RESOLVER is resolver.AsyncResolver
+def test_dns_resolver_should_be_async_on_macos_and_linux() -> None:
+    loop = asyncio.new_event_loop()
+    resolver = loop.run_until_complete(tcp._get_dns_resolver(loop))
+    expected = ThreadedResolver if os.name == "nt" else AsyncResolver
+    assert resolver is expected
+    loop.close()
 
 
-@pytest.mark.asyncio
-async def test_dns_resolver_should_fall_back_to_threaded_resolver() -> None:
-    constants.DNS_RESOLVER = None
-    with mock.patch("cyberdrop_dl.managers.client_manager._test_async_resolver", side_effect=RuntimeError("boom")):
-        await client_manager._set_dns_resolver()
-    assert constants.DNS_RESOLVER is resolver.ThreadedResolver
+class TestMakeSSLContext:
+    def test_none_or_empty_string_returns_false(self) -> None:
+        assert tcp.create_ssl_context(None) is False
+        assert tcp.create_ssl_context("") is False
+
+    def test_certifi_returns_default_context_with_certifi_bundle(self) -> None:
+        ctx = tcp.create_ssl_context("certifi")
+        assert type(ctx) is ssl.SSLContext
+        assert ctx.check_hostname is True
+        assert ctx.verify_mode == ssl.CERT_REQUIRED
+
+    def test_truststore_returns_truststore_context(self) -> None:
+        ctx = tcp.create_ssl_context("truststore")
+        assert isinstance(ctx, truststore.SSLContext)
+
+    def test_truststore_plus_certifi_returns_combined_context(self) -> None:
+        ctx = tcp.create_ssl_context("truststore+certifi")
+        assert type(ctx) is truststore.SSLContext
+
+    def test_unknown_name_raises_value_error(self) -> None:
+        with pytest.raises(ValueError, match="foobar"):
+            tcp.create_ssl_context("foobar")

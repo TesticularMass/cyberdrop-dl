@@ -7,15 +7,15 @@ from collections import defaultdict
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.exceptions import ScrapeError
-from cyberdrop_dl.utils import css
-from cyberdrop_dl.utils.utilities import error_handling_wrapper, get_text_between
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.utils import css, extr_text
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
     from bs4 import BeautifulSoup
 
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 _ACCOUNTS = ("amateurs", "profiles", "channels", "pornstars")
@@ -65,10 +65,10 @@ class XVideosCrawler(Crawler):
         "Account Quickies": tuple(f"{path}#quickies" for path in _ACCOUNT_PATHS),
     }
 
-    PRIMARY_URL = AbsoluteHttpURL("https://www.xvideos.com")
-    DOMAIN = "xvideos"
-    FOLDER_DOMAIN = "xVideos"
-    NEXT_PAGE_SELECTOR = Selectors.NEXT_PAGE
+    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://www.xvideos.com")
+    DOMAIN: ClassVar[str] = "xvideos"
+    FOLDER_DOMAIN: ClassVar[str] = "xVideos"
+    NEXT_PAGE_SELECTOR: ClassVar[str] = Selectors.NEXT_PAGE
 
     @classmethod
     def transform_url(cls, url: AbsoluteHttpURL) -> AbsoluteHttpURL:
@@ -88,17 +88,19 @@ class XVideosCrawler(Crawler):
         self._seen_domains: set[str] = set()
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
-        if ".red" not in scrape_item.url.host:
-            match scrape_item.url.parts[1:]:
-                case [part, _] if part.startswith("video"):
-                    return await self.video(scrape_item)
-                case [_ as part, _] if part in _EXTENDED_ACCOUNTS:
-                    return await self.account(scrape_item)
-                case [_ as part, _, "photos" | "post", gallery_id, *_] if part in _EXTENDED_ACCOUNTS:
-                    return await self.gallery(scrape_item, gallery_id)
-                case [_ as part] if part not in _EXTENDED_ACCOUNTS:  # channel
-                    return await self.account(scrape_item)
-        raise ValueError
+        if scrape_item.url.host.endswith(".red"):
+            raise ValueError
+        match scrape_item.url.parts[1:]:
+            case [part, _] if part.startswith("video"):
+                return await self.video(scrape_item)
+            case [_ as part, _] if part in _EXTENDED_ACCOUNTS:
+                return await self.account(scrape_item)
+            case [_ as part, _, "photos" | "post", gallery_id, *_] if part in _EXTENDED_ACCOUNTS:
+                return await self.gallery(scrape_item, gallery_id)
+            case [_ as part] if part not in _EXTENDED_ACCOUNTS:  # channel
+                return await self.account(scrape_item)
+            case _:
+                raise ValueError
 
     @error_handling_wrapper
     async def video(self, scrape_item: ScrapeItem) -> None:
@@ -114,13 +116,13 @@ class XVideosCrawler(Crawler):
 
         soup = await self._get_soup(scrape_item.url)
         if error := soup.select_one(Selectors.DELETED_VIDEO):
-            raise ScrapeError(404, css.get_text(error))
+            raise ScrapeError(404, css.text(error))
 
         title = css.page_title(soup, self.DOMAIN)
-        scrape_item.possible_datetime = self.parse_iso_date(css.get_json_ld_date(soup))
+        scrape_item.uploaded_at = self.parse_iso_date(css.json_ld(soup)["uploadDate"])
         script = css.select_text(soup, Selectors.HLS_VIDEO_JS)
-        m3u8_url = self.parse_url(get_text_between(script, "setVideoHLS('", "')"))
-        m3u8, info = await self.get_m3u8_from_playlist_url(m3u8_url)
+        m3u8_url = self.parse_url(extr_text(script, "setVideoHLS('", "')"))
+        m3u8, info = await self.request_m3u8_playlist(m3u8_url)
         custom_filename = self.create_custom_filename(title, ".mp4", file_id=encoded_id, resolution=info.resolution)
         # Remove url slug to prevent duplicates in database. It's language specific and not required.
         url = scrape_item.url.with_name("_")
@@ -134,14 +136,14 @@ class XVideosCrawler(Crawler):
 
         soup = await self._get_soup(scrape_item.url)
         script = css.select_text(soup, Selectors.ACCOUNT_INFO_JS)
-        display_name = get_text_between(script, '"display":"', '",')
+        display_name = extr_text(script, '"display":"', '",')
         scrape_item.setup_as_profile(self.create_title(f"{display_name} [{name}]"))
 
         frag = scrape_item.url.fragment
         part = "photos" if "profiles" in scrape_item.url.parts else "post"
         if not frag or "_tabPhotos" in frag:
             galleries: dict[str, Any] | list[str] = json.loads(
-                get_text_between(script, '"galleries":', '"visitor":').removesuffix(",")
+                extr_text(script, '"galleries":', '"visitor":').removesuffix(",")
             )
 
             if isinstance(galleries, dict):
@@ -149,7 +151,8 @@ class XVideosCrawler(Crawler):
 
             for gallery_id in galleries:
                 url = scrape_item.url / part / gallery_id.removeprefix("f-")
-                new_scrape_item = scrape_item.create_child(url, new_title_part="photos")
+                new_scrape_item = scrape_item.create_child(url)
+                new_scrape_item.append_folders("photos")
                 self.create_task(self.run(new_scrape_item))
                 scrape_item.add_children()
 
@@ -157,28 +160,29 @@ class XVideosCrawler(Crawler):
             await self._iter_api_pages(scrape_item, scrape_item.url / "videos/new", "videos")
 
         if not frag or "quickies" in frag:
-            has_quickies = get_text_between(script, '"has_quickies":', ",").strip()
+            has_quickies = extr_text(script, '"has_quickies":', ",").strip()
             if has_quickies == "false":
                 return
 
-            user_id = get_text_between(script, '"id_user":', ",").strip()
+            user_id = extr_text(script, '"id_user":', ",").strip()
             quickies_api = scrape_item.url.origin() / "quickies-api/profilevideos/all/none/N" / user_id
             await self._iter_api_pages(scrape_item, quickies_api, "quickies")
 
     @error_handling_wrapper
     async def gallery(self, scrape_item: ScrapeItem, album_id: str) -> None:
         title: str = ""
-        results = await self.get_album_results(album_id)
+        should_download = await self.make_album_checker(album_id)
         async for soup in self.web_pager(scrape_item.url, relative_to=scrape_item.url.origin()):
             if not title:
                 title_tag = css.select(soup, Selectors.GALLERY_TITLE)
                 for tag in title_tag.select("*"):
                     tag.decompose()
-                title = self.create_title(css.get_text(title_tag).split(">", 1)[-1].strip(), album_id)
+                title = self.create_title(css.text(title_tag).split(">", 1)[-1].strip(), album_id)
                 scrape_item.setup_as_album(title, album_id=album_id)
 
-            for _, src in self.iter_tags(soup, Selectors.GALLERY_IMG, results=results):
+            for src in filter(should_download, self.iter_urls(soup, Selectors.GALLERY_IMG)):
                 self.create_task(self.direct_file(scrape_item, src))
+                scrape_item.add_children()
 
     async def _get_soup(self, url: AbsoluteHttpURL) -> BeautifulSoup:
         if url.host not in self._seen_domains:
@@ -216,16 +220,20 @@ class XVideosCrawler(Crawler):
                 raise ScrapeError(json_resp["code"])
 
             per_page = json_resp.get("nb_per_page") or per_page
-            videos: list[dict[str, str]] = json_resp["videos"]
+            videos: list[dict[str, str]] | dict[str, Any] = json_resp["videos"]
+            if type(videos) is dict:
+                videos = [videos]
             for video in videos:
+                assert type(video) is dict
                 if new_part == "videos":
                     slug = video["u"].rpartition("/")[-1]
                     url = scrape_item.url.origin() / f"video.{video['eid']}" / slug
                 else:
                     url = self.parse_url(video["url"], scrape_item.url.origin())
-                new_scrape_item = scrape_item.create_child(url, new_title_part=new_part)
+                new_scrape_item = scrape_item.create_child(url)
+                new_scrape_item.append_folders(new_part)
                 self.create_task(self.run(new_scrape_item))
                 scrape_item.add_children()
 
-            if json_resp.get("hasMoreVideos", None) is False or len(videos) < per_page:
+            if json_resp.get("hasMoreVideos") is False or len(videos) < per_page:
                 break

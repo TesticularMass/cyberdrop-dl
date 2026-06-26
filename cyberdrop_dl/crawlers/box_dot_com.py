@@ -9,14 +9,14 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from pydantic import Field
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedDomains, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.exceptions import ScrapeError
-from cyberdrop_dl.models import AliasModel
+from cyberdrop_dl.models import DeferredModel
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.utils import css
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 class ItemType(StrEnum):
@@ -24,7 +24,7 @@ class ItemType(StrEnum):
     file = "file"
 
 
-class Item(AliasModel):
+class Item(DeferredModel):
     name: str
     type: str
     id: str = Field(validation_alias="itemID", coerce_numbers_to_str=True)
@@ -33,7 +33,7 @@ class Item(AliasModel):
     parent_id: str = Field(validation_alias="parentFolderID", coerce_numbers_to_str=True)
 
 
-class SharedFolder(AliasModel):
+class SharedFolder(DeferredModel):
     name: str = Field(validation_alias="currentFolderName")
     id: str = Field(validation_alias="currentFolderID", coerce_numbers_to_str=True)
     items: list[Item]
@@ -42,8 +42,6 @@ class SharedFolder(AliasModel):
 APP_DOMAIN = "app.box.com"
 DOWNLOAD_URL_BASE = AbsoluteHttpURL("https://app.box.com/index.php?rm=box_download_shared_file")
 JS_SELECTOR = "script:-soup-contains('Box.postStreamData')"
-
-PRIMARY_URL = AbsoluteHttpURL("https://www.box.com")
 
 
 class BoxDotComCrawler(Crawler):
@@ -57,7 +55,7 @@ class BoxDotComCrawler(Crawler):
     }
     DOMAIN: ClassVar[str] = "box.com"
     FOLDER_DOMAIN: ClassVar[str] = "Box"
-    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = PRIMARY_URL
+    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://www.box.com")
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         if scrape_item.url.host == APP_DOMAIN and ("s" in scrape_item.url.parts or scrape_item.url.query.get("s")):
@@ -70,12 +68,12 @@ class BoxDotComCrawler(Crawler):
         for trash in ("/embed_widget/", "/embed/"):
             canonical_path = canonical_path.replace(trash, "")
         scrape_item.url = scrape_item.url.with_path(canonical_path, keep_query=True, keep_fragment=True)
-        if "file" in scrape_item.url.parts and await self.check_complete_from_referer(scrape_item):
-            return
+        if "file" in scrape_item.url.parts and await self.check_complete_from_referer(scrape_item.url):
+            return None
 
         soup = await self.request_soup(scrape_item.url)
 
-        if "file or folder link has been removed" in soup.text:
+        if "file or folder link has been removed" in soup.get_text():
             raise ScrapeError(410)
 
         js_text: str = css.select_text(soup, JS_SELECTOR)
@@ -95,7 +93,7 @@ class BoxDotComCrawler(Crawler):
             canonical_url = get_canonical_url(shared_name, file_id)
             scrape_item.url = canonical_url
             self.create_task(self.run(scrape_item))
-            return
+            return None
 
         shared_folder = SharedFolder(**shared_folder_data)
         if "file" not in scrape_item.url.parts:
@@ -122,7 +120,7 @@ class BoxDotComCrawler(Crawler):
             link = get_canonical_url(shared_name, item.id)
             new_scrape_item = scrape_item.create_child(link)
             for part in path.parts:
-                new_scrape_item.add_to_parent_title(part)
+                new_scrape_item.append_folders(part)
             await self.file(new_scrape_item, shared_name, item)
             scrape_item.add_children()
 
@@ -131,7 +129,7 @@ class BoxDotComCrawler(Crawler):
         assert file.type == ItemType.file
         filename, ext = self.get_filename_and_ext(file.name)
         link = DOWNLOAD_URL_BASE.update_query(shared_name=shared_name, file_id=file.typed_id)
-        scrape_item.possible_datetime = file.date
+        scrape_item.uploaded_at = file.date
         await self.handle_file(scrape_item.url, scrape_item, filename, ext, debrid_link=link)
 
     def build_file_system(self, items: list[Item], root_id: str) -> dict[Path, Item]:
@@ -159,12 +157,11 @@ class BoxDotComCrawler(Crawler):
         path = Path()
         path_mapping[path] = root_item
         build_tree(root_id, path)
-        sorted_mapping = dict(sorted(path_mapping.items()))
-        return sorted_mapping
+        return dict(sorted(path_mapping.items()))
 
 
-def get_canonical_url(shared_name: str, id: str, is_folder: bool = False) -> AbsoluteHttpURL:
+def get_canonical_url(shared_name: str, share_id: str, *, is_folder: bool = False) -> AbsoluteHttpURL:
     base = AbsoluteHttpURL(f"https://app.box.com/s/{shared_name}")
     if is_folder:
-        return base / "folder" / id
-    return base / "file" / id
+        return base / "folder" / share_id
+    return base / "file" / share_id

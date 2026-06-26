@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from typing import Annotated, Literal, NewType, TypeVar
+import datetime
+from enum import StrEnum
+from typing import Annotated, Literal, NewType
 
 from bs4 import BeautifulSoup
 from pydantic import AfterValidator, AliasPath, BaseModel, Field
-
-from cyberdrop_dl.compat import StrEnum
-from cyberdrop_dl.models.base_models import SequenceModel
-
-_ModelT = TypeVar("_ModelT", bound=BaseModel)
+from pydantic.type_adapter import TypeAdapter
 
 
 def make_soup(string: str) -> BeautifulSoup:
@@ -20,12 +17,12 @@ def unescape_html(string: str) -> str:
     return make_soup(string).get_text(strip=True)
 
 
-def add_utc_tz(parsed_date: datetime) -> datetime:
-    return parsed_date.replace(tzinfo=UTC)
+def add_utc_tz(parsed_date: datetime.datetime) -> datetime.datetime:
+    return parsed_date.replace(tzinfo=datetime.UTC)
 
 
 TitleFromHTML = Annotated[str, AfterValidator(unescape_html)]
-AwareDatetimeUTC = Annotated[datetime, AfterValidator(add_utc_tz)]
+AwareDatetimeUTC = Annotated[datetime.datetime, AfterValidator(add_utc_tz)]
 
 
 class ColletionType(StrEnum):
@@ -55,28 +52,28 @@ class Collection(WordPressModel):
 
 
 class Category(Collection):
-    taxonomy: Literal["category"] = "category"
+    taxonomy: Literal["category"] = "category"  # pyright: ignore[reportIncompatibleVariableOverride]
     _type: ColletionType = ColletionType.CATEGORY
 
 
 class Tag(Category):
-    taxonomy: Literal["post_tag"] = "post_tag"
+    taxonomy: Literal["post_tag"] = "post_tag"  # pyright: ignore[reportIncompatibleVariableOverride]
     _type: ColletionType = ColletionType.TAG
 
 
-class PostSequence(SequenceModel[Post]): ...
+PostSequence = TypeAdapter(list[Post])
 
 
-class TagSequence(SequenceModel[Tag]): ...
+TagSequence = TypeAdapter(list[Tag])
 
 
-class CategorySequence(SequenceModel[Category]): ...
+CategorySequence = TypeAdapter(list[Category])
 
 
 class PostExtraData(Post):
     # Not used at the moment
-    date: datetime
-    modified: datetime
+    date: datetime.datetime
+    modified: datetime.datetime
     modified_gmt: AwareDatetimeUTC
     status: Literal["publish", "future", "draft", "pending", "private"]
     type: str

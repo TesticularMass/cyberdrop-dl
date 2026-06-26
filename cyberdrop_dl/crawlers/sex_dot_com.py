@@ -3,24 +3,24 @@ from __future__ import annotations
 import itertools
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.crawlers.crawler import Crawler, SupportedDomains, SupportedPaths
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
-PRIMARY_URL = AbsoluteHttpURL("https://sex.com")
 API_URL = AbsoluteHttpURL("https://iframe.sex.com/api/")
 _SHORTS_URL = AbsoluteHttpURL("https://sex.com/en/shorts")
 
 
 class SexDotComCrawler(Crawler):
+    SUPPORTED_DOMAINS: ClassVar[SupportedDomains] = ("sex.com",)
     SUPPORTED_PATHS: ClassVar[SupportedPaths] = {"Shorts Profiles": "/shorts/<profile>"}
-    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = PRIMARY_URL
+    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://sex.com")
     DOMAIN: ClassVar[str] = "sex"
     FOLDER_DOMAIN: ClassVar[str] = "Sex.com"
 
@@ -55,7 +55,7 @@ class SexDotComCrawler(Crawler):
         return (await self.request_json(data_url))["media"]
 
     @error_handling_wrapper
-    async def handle_media(self, scrape_item: ScrapeItem, item: dict[str, Any] | None) -> None:
+    async def _media(self, scrape_item: ScrapeItem, item: dict[str, Any] | None) -> None:
         real_item = item or await self.get_media(scrape_item)
         relative_url = real_item["relativeUrl"]
         canonical_url = _SHORTS_URL / relative_url
@@ -73,7 +73,7 @@ class SexDotComCrawler(Crawler):
         else:
             return
 
-        scrape_item.possible_datetime = self.parse_date(real_item["createdAt"])
+        scrape_item.uploaded_at = self.parse_iso_date(real_item["createdAt"])
         scrape_item.url = canonical_url
         await self.handle_file(media_url, scrape_item, filename, ext)
         scrape_item.add_children()
@@ -82,10 +82,11 @@ class SexDotComCrawler(Crawler):
     async def profile(self, scrape_item: ScrapeItem) -> None:
         async for json_data in self.shorts_profile_paginator(scrape_item):
             for item in json_data["page"]["items"]:
-                await self.handle_media(scrape_item, item["media"])
+                await self._media(scrape_item, item["media"])
 
+    @error_handling_wrapper
     async def post(self, scrape_item: ScrapeItem) -> None:
         username = scrape_item.url.parts[2]
         title = self.create_title(username)
         scrape_item.setup_as_album(title)
-        await self.handle_media(scrape_item, None)
+        await self._media(scrape_item, None)

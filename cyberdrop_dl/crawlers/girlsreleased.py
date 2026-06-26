@@ -6,11 +6,11 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from pydantic import dataclasses
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -57,7 +57,7 @@ class GirlsReleasedCrawler(Crawler):
         title = self.create_separate_post_title(set_.name, set_id, set_.date)
         title = self.create_title(title, set_id)
         scrape_item.setup_as_album(title, album_id=set_id)
-        scrape_item.possible_datetime = set_.date
+        scrape_item.uploaded_at = set_.date
         for image in set_.images:
             url = self.parse_url(image[3])
             new_scrape_item = scrape_item.create_child(url)
@@ -84,7 +84,7 @@ class GirlsReleasedCrawler(Crawler):
         api_base = self.PRIMARY_URL / "api/0.3/sets/site" / domain
         if model_id and model_name:
             api_base = api_base / "model" / model_id
-            scrape_item.add_to_parent_title(f"{model_name} [model]")
+            scrape_item.append_folders(f"{model_name} [model]")
 
         await self._pagination(scrape_item, api_base)
 

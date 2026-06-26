@@ -3,23 +3,19 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
-
-PRIMARY_URL = AbsoluteHttpURL("https://send.now/")
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 class SendNowCrawler(Crawler):
     SUPPORTED_PATHS: ClassVar[SupportedPaths] = {"Direct links": ""}
-    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = PRIMARY_URL
+    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://send.now/")
     DOMAIN: ClassVar[str] = "send.now"
     FOLDER_DOMAIN: ClassVar[str] = "SendNow"
-
-    def __post_init__(self) -> None:
-        self.got_cookies = False
+    got_cookies: bool = False
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         await self.file(scrape_item)
@@ -51,11 +47,11 @@ class SendNowCrawler(Crawler):
     async def _get_cookies(self, scrape_item: ScrapeItem) -> None:
         if self.got_cookies:
             return
-        async with self.startup_lock:
+        async with self._startup_lock:
             if self.got_cookies:
                 return
 
             async with self.request(scrape_item.url, impersonate=True):
                 pass
-            cookies = self.manager.client_manager.cookies.filter_cookies(PRIMARY_URL)
+            cookies = self.client.cookies.filter_cookies(self.PRIMARY_URL)
             self.got_cookies = bool(cookies)

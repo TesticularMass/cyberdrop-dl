@@ -3,13 +3,13 @@ from __future__ import annotations
 import itertools
 from typing import TYPE_CHECKING, ClassVar
 
-from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.crawlers.crawler import Crawler, RateLimit, SupportedPaths
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.utils import css
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 class Selector:
@@ -35,12 +35,9 @@ class TrannyOneCrawler(Crawler):
     DOMAIN: ClassVar[str] = "tranny.one"
     FOLDER_DOMAIN: ClassVar[str] = "Tranny.One"
     PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://www.tranny.one")
-    _RATE_LIMIT = 3, 10
+    _RATE_LIMIT: ClassVar[RateLimit] = 3, 10
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
-        if self.is_subdomain(scrape_item.url):
-            return await self.direct_file(scrape_item)
-
         match scrape_item.url.parts[1:]:
             case ["view", video_id]:
                 return await self.video(scrape_item, video_id)
@@ -50,13 +47,16 @@ class TrannyOneCrawler(Crawler):
                 return await self.model(scrape_item, model_id)
             case ["pics", "album", album_id]:
                 return await self.album(scrape_item, album_id)
+            case ["work", "orig", _, _, _]:
+                return await self.direct_file(scrape_item)
+
             case _:
                 raise ValueError
 
     @error_handling_wrapper
     async def video(self, scrape_item: ScrapeItem, video_id: str) -> None:
-        if await self.check_complete_from_referer(scrape_item):
-            return
+        if await self.check_complete_from_referer(scrape_item.url):
+            return None
 
         soup = await self.request_soup(scrape_item.url)
         title = css.select_text(soup, Selector.VIDEO_TITLE)
@@ -76,7 +76,7 @@ class TrannyOneCrawler(Crawler):
             page_url = scrape_item.url.with_query(pageId=page)
             soup = await self.request_soup(page_url)
             n_videos = 0
-            for _, new_scrape_item in self.iter_children(scrape_item, soup, Selector.ITEM_THUMBS):
+            for new_scrape_item in self.iter_children(scrape_item, soup, Selector.ITEM_THUMBS):
                 n_videos += 1
                 self.create_task(self.run(new_scrape_item))
 
@@ -88,9 +88,10 @@ class TrannyOneCrawler(Crawler):
         soup = await self.request_soup(scrape_item.url)
         name = css.select_text(soup, Selector.ALBUM_TITLE)
         scrape_item.setup_as_album(self.create_title(f"{name} [album]"), album_id=album_id)
-        results = await self.get_album_results(album_id)
-        for _, pic in self.iter_tags(soup, Selector.IMAGES, results=results):
+        should_download = await self.make_album_checker(album_id)
+        for pic in filter(should_download, self.iter_urls(soup, Selector.IMAGES)):
             self.create_task(self.direct_file(scrape_item, pic))
+            scrape_item.add_children()
 
     @error_handling_wrapper
     async def model(self, scrape_item: ScrapeItem, model_id: str) -> None:
@@ -100,7 +101,7 @@ class TrannyOneCrawler(Crawler):
 
         ajax_url = self.PRIMARY_URL.with_query(area="pornstarsViewer", ajax=1, id=model_id, tab="albums")
         soup = await self.request_soup(ajax_url)
-        for _, new_scrape_item in self.iter_children(scrape_item, soup, Selector.ITEM_THUMBS):
+        for new_scrape_item in self.iter_children(scrape_item, soup, Selector.ITEM_THUMBS):
             self.create_task(self.run(new_scrape_item))
 
         await self._iter_videos(scrape_item)

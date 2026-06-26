@@ -5,12 +5,13 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from cyberdrop_dl.crawlers._kvs import extract_kvs_video
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures import AbsoluteHttpURL, Resolution
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.utils import css
-from cyberdrop_dl.utils.utilities import error_handling_wrapper, filter_query
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.mediaprops import Resolution
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 _PER_PAGE: int = 1000
@@ -35,10 +36,10 @@ class Selector:
 
 
 def _pagination_query(url: AbsoluteHttpURL) -> dict[str, Any]:
-    per_page_params = {
+    return {
         "albums_per_page" if "albums" in url.parts else "videos_per_page": _PER_PAGE,
+        "sort_by": url.query.get("sort_by", "post_date"),
     }
-    return filter_query(url.update_query(per_page_params).query, ("sort_by", "post_date"), "duration")
 
 
 class PimpBunnyCrawler(Crawler):
@@ -82,7 +83,7 @@ class PimpBunnyCrawler(Crawler):
 
         query = _pagination_query(scrape_item.url)
         async for soup in self.web_pager(url.with_query(query)):
-            for _, new_scrape_item in self.iter_children(scrape_item, soup, Selector.ITEM):
+            for new_scrape_item in self.iter_children(scrape_item, soup, Selector.ITEM):
                 self.create_task(self.run(new_scrape_item))
 
     @error_handling_wrapper
@@ -91,15 +92,18 @@ class PimpBunnyCrawler(Crawler):
         name: str = ""
 
         query = _pagination_query(scrape_item.url)
+        has_albums: bool = False
         async for soup in self.web_pager(model_url.with_query(query)):
             if not name:
                 name = css.select_text(soup, Selector.MODEL_NAME)
                 scrape_item.setup_as_profile(self.create_title(f"{name} [model]"))
 
-            for _, new_scrape_item in self.iter_children(scrape_item, soup, Selector.ITEM):
+            for new_scrape_item in self.iter_children(scrape_item, soup, Selector.ITEM):
                 self.create_task(self.run(new_scrape_item))
 
-        has_albums = soup.select_one(Selector.ALBUM_TAB)
+            if not has_albums:
+                has_albums = bool(soup.select_one(Selector.ALBUM_TAB))
+
         if has_albums:
             await self.model_albums(scrape_item, model_name)
 
@@ -112,15 +116,14 @@ class PimpBunnyCrawler(Crawler):
         async for soup in self.web_pager(albums_url.with_query(query)):
             if not name:
                 name = css.select_text(soup, Selector.MODEL_NAME)
-                if name not in scrape_item.parent_title:
-                    scrape_item.setup_as_profile(self.create_title(f"{name} [model]"))
+                scrape_item.setup_as_profile(self.create_title(f"{name} [model]"))
 
-            for _, new_scrape_item in self.iter_children(scrape_item, soup, Selector.ITEM):
+            for new_scrape_item in self.iter_children(scrape_item, soup, Selector.ITEM):
                 self.create_task(self.run(new_scrape_item))
 
     @error_handling_wrapper
     async def video(self, scrape_item: ScrapeItem) -> None:
-        if await self.check_complete_from_referer(scrape_item):
+        if await self.check_complete_from_referer(scrape_item.url):
             return
 
         soup = await self.request_soup(scrape_item.url)
@@ -128,7 +131,7 @@ class PimpBunnyCrawler(Crawler):
         custom_filename = self.create_custom_filename(
             video.title, video.url.suffix, file_id=video.id, resolution=video.resolution
         )
-        scrape_item.possible_datetime = self.parse_iso_date(css.get_json_ld_date(soup))
+        scrape_item.uploaded_at = self.parse_iso_date(css.json_ld(soup)["uploadDate"])
         await self.handle_file(
             scrape_item.url,
             scrape_item,
@@ -147,6 +150,6 @@ class PimpBunnyCrawler(Crawler):
                 title = css.select_text(soup, Selector.ALBUM_TITLE)
                 scrape_item.setup_as_album(self.create_title(f"{title} [album]"))
 
-            for _, image in self.iter_tags(soup, Selector.ITEM):
+            for image in self.iter_urls(soup, Selector.ITEM):
                 self.create_task(self.direct_file(scrape_item, image))
                 scrape_item.add_children()

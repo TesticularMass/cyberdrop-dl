@@ -4,15 +4,14 @@ import json
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.exceptions import ScrapeError
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
-PRIMARY_URL = AbsoluteHttpURL("https://streamable.com")
 AJAX_ENTRYPOINT = AbsoluteHttpURL("https://ajax.streamable.com/videos/")
 
 STATUS_OK = 2
@@ -26,7 +25,7 @@ VIDEO_STATUS = {
 
 class StreamableCrawler(Crawler):
     SUPPORTED_PATHS: ClassVar[SupportedPaths] = {"Video": "/..."}
-    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = PRIMARY_URL
+    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://streamable.com")
     DOMAIN: ClassVar[str] = "streamable"
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
@@ -35,7 +34,7 @@ class StreamableCrawler(Crawler):
     @error_handling_wrapper
     async def video(self, scrape_item: ScrapeItem) -> None:
         video_id = scrape_item.url.name or scrape_item.url.parent.name
-        canonical_url = PRIMARY_URL / video_id
+        canonical_url = self.PRIMARY_URL / video_id
         scrape_item.url = canonical_url
 
         if await self.check_complete_from_referer(canonical_url):
@@ -49,9 +48,9 @@ class StreamableCrawler(Crawler):
             raise ScrapeError(404, VIDEO_STATUS.get(status))
 
         title = json_resp.get("reddit_title") or json_resp["title"]
-        scrape_item.possible_datetime = json_resp["date_added"]
+        scrape_item.uploaded_at = json_resp["date_added"]
 
-        self.log_debug(json.dumps(json_resp, indent=4))
+        self.log.debug(json.dumps(json_resp, indent=4))
         link_str = get_best_quality(json_resp["files"])
         if not link_str:
             raise ScrapeError(422)

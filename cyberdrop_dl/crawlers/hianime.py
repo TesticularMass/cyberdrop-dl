@@ -1,21 +1,22 @@
 from __future__ import annotations
 
-import asyncio
 import dataclasses
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import bs4
 
+from cyberdrop_dl import aio
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths, auto_task_id
 from cyberdrop_dl.crawlers.megacloud import MegaCloudCrawler
-from cyberdrop_dl.data_structures.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.exceptions import ScrapeError
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.utils import css
-from cyberdrop_dl.utils.aio import WeakAsyncLocks
-from cyberdrop_dl.utils.utilities import error_handling_wrapper
+from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from collections.abc import Generator
+
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 class Selector:
@@ -40,10 +41,10 @@ class Episode:
     @staticmethod
     def from_tag(ep_tag: bs4.Tag) -> Episode:
         return Episode(
-            title=css.get_attr(ep_tag, "title"),
-            number=int(css.get_attr(ep_tag, "data-number")),
-            id=int(css.get_attr(ep_tag, "data-id")),
-            path_qs=css.get_attr(ep_tag, "href"),
+            title=css.attr(ep_tag, "title"),
+            number=int(css.attr(ep_tag, "data-number")),
+            id=int(css.attr(ep_tag, "data-id")),
+            path_qs=css.attr(ep_tag, "href"),
         )
 
 
@@ -66,7 +67,7 @@ class HiAnimeCrawler(Crawler):
 
     def __post_init__(self) -> None:
         self._animes: dict[int, Anime] = {}
-        self._anime_locks = WeakAsyncLocks[int]()
+        self._anime_locks: aio.WeakAsyncLocks[int] = aio.WeakAsyncLocks()
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         episode = int(scrape_item.url.query.get("ep", 0)) or None
@@ -104,7 +105,7 @@ class HiAnimeCrawler(Crawler):
             self._animes[anime_id] = anime = await self._request_anime_info(web_url, anime_id)
             return anime
 
-    async def request_json(self, url: AbsoluteHttpURL, *args, **kwargs: Any) -> Any:
+    async def request_json(self, url: AbsoluteHttpURL, *args: Any, **kwargs: Any) -> Any:
         # Sometimes they return HTML in the content type headers, but it is JSON
         headers = kwargs.pop("headers", {}) | {"Accept": "application/json"}
         async with self.request(url, *args, headers=headers, **kwargs) as resp:
@@ -113,7 +114,7 @@ class HiAnimeCrawler(Crawler):
     async def _request_anime_info(self, web_url: AbsoluteHttpURL, anime_id: int) -> Anime:
         episodes_url = web_url.origin() / "ajax/v2/episode/list/" / str(anime_id)
 
-        anime_soup, episodes_resp = await asyncio.gather(
+        anime_soup, episodes_resp = await aio.safe_gather(
             self.request_soup(web_url),
             self.request_json(episodes_url),
         )
@@ -121,7 +122,7 @@ class HiAnimeCrawler(Crawler):
         return Anime(
             id=anime_id,
             name=css.select_text(anime_soup, Selector.ANIME_NAME),
-            episodes=dict(_parse_episodes_resp(episodes_resp["html"])),
+            episodes={ep.id: ep for ep in _parse_episodes(episodes_resp["html"])},
         )
 
     @error_handling_wrapper
@@ -158,16 +159,15 @@ def _parse_anime_id(slug: str) -> int | None:
             return int(tail)
 
 
-def _parse_episodes_resp(html: str):
+def _parse_episodes(html: str) -> Generator[Episode]:
     episodes_soup = bs4.BeautifulSoup(html, "html.parser")
     for ep_tag in episodes_soup.select(Selector.EPISODES):
-        episode = Episode.from_tag(ep_tag)
-        yield episode.id, episode
+        yield Episode.from_tag(ep_tag)
 
 
-def _parse_server_resp(html: str):
+def _parse_server_resp(html: str) -> Generator[tuple[str, str]]:
     soup = bs4.BeautifulSoup(html, "html.parser")
     for server_type in ("sub", "dub", "raw"):
         if server_tag := soup.select_one(f"div[data-type={server_type}]:-soup-contains('HD-1')"):
-            server_id = css.get_attr(server_tag, "data-id")
+            server_id = css.attr(server_tag, "data-id")
             yield server_type, server_id

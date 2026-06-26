@@ -21,27 +21,43 @@ Termux wiki: [https://wiki.termux.com/wiki/Installation](https://wiki.termux.com
 
 Install termux from [F-droid (recommended)](https://f-droid.org/packages/com.termux/) or from the [Google Playstore (restricted version)](https://play.google.com/store/apps/details?id=com.termux):
 
-## 2. Install `cyberdrop-dl-patched`
+## 2. Install `cyberdrop-dl`
 
 Run the following commands inside termux
 
 ```shell
-# Get storage access permission
+#!/bin/sh
 termux-setup-storage
-
-# Install dependencies
 pkg upgrade -y
-pkg install rust which micro libjpeg-turbo python uv -y
+pkg install rust which micro ffmpeg python uv -y
 
-# Install CDL and setup appdata folder
-uv tool install cyberdrop-dl-patched
+# Making sure maturin knows we are building ON Android, not FOR Android
+ANDROID_API_LEVEL=24
+export ANDROID_API_LEVEL
+
+uv tool install --upgrade --force cyberdrop-dl-patched
 uv tool update-shell
-mkdir /sdcard/cyberdrop-dl
-echo 'alias cyberdrop-dl="cyberdrop-dl --portrait --appdata-folder /sdcard/cyberdrop-dl"' >> ~/.bashrc
-source ~/.bashrc
 ```
 
-## How to update `cyberdrop-dl-patched`?
+{% hint style="warning" %}
+You will loose your config and database file if you uninstall termux. Use the CLI options to change the location of those files.
+
+```shell
+mkdir /sdcard/cyberdrop-dl
+touch /sdcard/cyberdrop-dl/cyberdrop.db
+touch /sdcard/cyberdrop-dl/config.yaml
+cyberdrop-dl --database-file /sdcard/cyberdrop-dl/cyberdrop.db --config-file /sdcard/cyberdrop-dl/config.yaml
+```
+
+You can setup an alias to always include these options by default when running `cyberdrop-dl`
+
+```shell
+echo 'alias cyberdrop-dl="cyberdrop-dl --database-file /sdcard/cyberdrop-dl/cyberdrop.db --config-file /sdcard/cyberdrop-dl/config.yaml"' >> ~/.bashrc
+```
+
+{% endhint %}
+
+## How to update `cyberdrop-dl`?
 
 Run this command inside termux:
 
