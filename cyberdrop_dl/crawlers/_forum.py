@@ -34,7 +34,8 @@ if TYPE_CHECKING:
 
 LINK_TRASH_MAPPING = {".th.": ".", ".md.": ".", "ifr": "watch"}
 HTTP_REGEX_LINKS = re.compile(
-    r"https?://(www\.)?[-a-zA-Z0-9@:%._+~#=]{2,256}\.[a-z]{2,12}\b([-a-zA-Z0-9@:%_+.~#?&/=]*)"
+    r"https?://(www\.)?[-a-zA-Z0-9@:%._+~#=]{2,256}\.[a-z]{2,12}\b"
+    r"(?:[-a-zA-Z0-9@:%_+.~#?&,/=]*[-a-zA-Z0-9@:%_+.~#?&/=])?"
 )
 
 
@@ -174,6 +175,23 @@ class MessageBoardCrawler(Crawler, is_abc=True):
     # None: Completely skip login check and request. Always try to scrape as is the user is logged in
     # TODO: move login logic to the base crawler
     login_required: ClassVar[bool | None] = None
+    PASSWORD_REGEX: ClassVar[re.Pattern[str]] = re.compile(
+        r"(?:^|\s)(?:password|pass|pw)s?\s*(?:[:=]|\s+is\s+)\s*(?:Spoiler\s*)?([^\s<>\n\r\t]+)", re.IGNORECASE
+    )
+
+    def extract_password(self, post: ForumPostProtocol) -> str | None:
+        # Handle Xenforo spoiler buttons specifically (e.g. [SPOILER="Password"]secret[/SPOILER])
+        for spoiler in post.content.select(".bbCodeSpoiler"):
+            button = spoiler.select_one(".bbCodeSpoiler-button")
+            if button and "password" in button.get_text(strip=True).lower():
+                content = spoiler.select_one(".bbCodeBlock-content")
+                if content:
+                    return content.get_text(strip=True)
+
+        text = post.content.get_text(separator=" ", strip=True)
+        if match := self.PASSWORD_REGEX.search(text):
+            return match.group(1)
+        return None
 
     @classmethod
     @abstractmethod
@@ -225,10 +243,13 @@ class MessageBoardCrawler(Crawler, is_abc=True):
         if self.PRIMARY_URL.parts[-1] == "":
             thread_part_index -= 1
         match scrape_item.url.parts[thread_part_index:]:
-            case [thread_part, thread_name_and_id, *_] if thread_part in self.THREAD_PART_NAMES:
-                self._check_thread_recursion(scrape_item)
-                thread = self.parse_thread(scrape_item.url, thread_name_and_id)
-                return await self.thread(scrape_item, thread)
+            case [thread_part, *_] if thread_part in self.THREAD_PART_NAMES:
+                if thread_name_index := find_thread_name_index(scrape_item.url, thread_part_index):
+                    self._check_thread_recursion(scrape_item)
+                    scrape_item.url = normalize_thread_request_url(scrape_item.url, thread_part_index, thread_name_index)
+                    thread_name_and_id = scrape_item.url.parts[thread_part_index + 1]
+                    thread = self.parse_thread(scrape_item.url, thread_name_and_id)
+                    return await self.thread(scrape_item, thread)
             case ["goto" | "posts", _, *_]:
                 self._check_thread_recursion(scrape_item)
                 return await self.follow_redirect(scrape_item)
@@ -444,6 +465,9 @@ class HTMLMessageBoardCrawler(MessageBoardCrawler, is_abc=True):
         scrape_item.append_folders(post_title)
         stats: dict[str, int] = {}
 
+        if password := self.extract_password(post):
+            scrape_item.password = password
+
         async with self.new_task_group(scrape_item) as tg:
             for scraper in (
                 self._attachments,
@@ -589,6 +613,26 @@ def parse_thread_name_and_id(thread_name_and_id: str) -> tuple[str, int]:
     except ValueError:
         id_str, name = thread_name_and_id.split("-", 1)
     return name, int(id_str)
+
+
+def find_thread_name_index(url: AbsoluteHttpURL, thread_part_index: int) -> int | None:
+    for index, part in enumerate(url.parts[thread_part_index + 1 :], start=thread_part_index + 1):
+        if not part:
+            continue
+        try:
+            parse_thread_name_and_id(part)
+        except ValueError:
+            continue
+        return index
+    return None
+
+
+def normalize_thread_request_url(url: AbsoluteHttpURL, thread_part_index: int, thread_name_index: int) -> AbsoluteHttpURL:
+    new_parts = [*url.parts[1 : thread_part_index + 1], url.parts[thread_name_index], *url.parts[thread_name_index + 1 :]]
+    normalized = url.with_path("/".join(new_parts))
+    if url.fragment:
+        normalized = normalized.with_fragment(url.fragment)
+    return normalized
 
 
 def get_thread_canonical_url(url: AbsoluteHttpURL, thread_name_index: int) -> AbsoluteHttpURL:

@@ -34,6 +34,7 @@ class Sorter:
     image_format: str | None
     video_format: str | None
     non_media_format: str | None
+    unzip_archives: bool = False
     incrementer_format: str = "{i}"
 
     _tui: SortingUI = dataclasses.field(init=False, repr=False)
@@ -51,6 +52,7 @@ class Sorter:
         return cls(
             input_dir=settings.input_folder or config.download_folder,
             output_dir=settings.output_folder,
+            unzip_archives=settings.unzip_archives,
             incrementer_format=settings.formats.incrementer,
             audio_format=settings.formats.audio,
             image_format=settings.formats.image,
@@ -71,6 +73,9 @@ class Sorter:
             await self._run()
 
     async def _run(self) -> None:
+        if self.unzip_archives:
+            await self._extract_archives()
+
         async with asyncio.TaskGroup() as tg:
 
             async def sort_subfolder(folder: Path) -> None:
@@ -86,6 +91,26 @@ class Sorter:
 
         logger.info("DONE!", extra={"color": "green"})
         cleanup.rm_empty_dirs(self.input_dir)
+
+    async def _extract_archives(self) -> None:
+        import zipfile
+        
+        logger.info("Extracting zip archives...", extra={"color": "cyan"})
+        async with asyncio.TaskGroup() as tg:
+            async def extract_and_delete(zip_file: Path) -> None:
+                try:
+                    def extract():
+                        with zipfile.ZipFile(zip_file, 'r') as zip_ref:
+                            zip_ref.extractall(zip_file.parent)
+                    await asyncio.to_thread(extract)
+                    zip_file.unlink()
+                except Exception:
+                    logger.exception("Failed to unzip '%s'", zip_file)
+                    self._tui.stats.errors += 1
+
+            async for path in aio.rglob(self.input_dir, "*.zip"):
+                if await aio.is_file(path):
+                    _ = tg.create_task(extract_and_delete(path))
 
     async def _sort_file(self, folder_name: str, file: Path) -> None:
         ext = file.suffix.lower()

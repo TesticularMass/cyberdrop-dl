@@ -30,7 +30,6 @@ if TYPE_CHECKING:
 
 _HOST_OPTIONS: frozenset[str] = frozenset(("bunkr.site", "bunkr.cr", "bunkr.ph"))
 _find_js_vars = re.compile(r'var\s+(\w+)\s*=\s*(".*?"|\'.*?\'|[^;]+);', re.DOTALL).findall
-known_bad_hosts: set[str] = set()
 
 
 @final
@@ -87,6 +86,9 @@ class BunkrCrawler(Crawler):
                 return url
 
     def __post_init__(self) -> None:
+        self._startup_lock = asyncio.Lock()
+        self._known_good_host: str | None = None
+        self.known_bad_hosts: set[str] = set()
         self.api: BunkrAPI = BunkrAPI.from_crawler(self)
         self._parse_files = _make_album_parser()
         self._redirect_lock: asyncio.Lock = asyncio.Lock()
@@ -216,8 +218,8 @@ class BunkrCrawler(Crawler):
                 soup = await resp.soup()
 
         except (ClientConnectorError, DDOSGuardError):
-            known_bad_hosts.add(url.host)
-            if not _HOST_OPTIONS - known_bad_hosts:
+            self.known_bad_hosts.add(url.host)
+            if not _HOST_OPTIONS - self.known_bad_hosts:
                 raise
         else:
             if not self._known_good_host:
@@ -237,10 +239,10 @@ class BunkrCrawler(Crawler):
             return await self.request_soup(url.with_host(self._known_good_host))
 
         async with self._startup_lock:
-            if url.host not in known_bad_hosts and (soup := await self._try_request_soup(url)):
+            if url.host not in self.known_bad_hosts and (soup := await self._try_request_soup(url)):
                 return soup
 
-            for host in _HOST_OPTIONS - known_bad_hosts:
+            for host in _HOST_OPTIONS - self.known_bad_hosts:
                 if soup := await self._try_request_soup(url.with_host(host)):
                     return soup
 

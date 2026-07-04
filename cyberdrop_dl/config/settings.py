@@ -238,6 +238,9 @@ class Sort(ConfigGroup, name=None):
     enabled: Annotated[bool, _alias("sort")] = False
     "Enable/Disable file sorting at the end of a run"
 
+    unzip_archives: bool = False
+    "Unzip downloaded .zip archives before sorting and delete the original archives"
+
     input_folder: FalsyAsNone[Path] = None
     "Base folder to scan for files. Default to the same value as `--download-folder`"
 

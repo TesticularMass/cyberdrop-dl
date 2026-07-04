@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from bs4 import BeautifulSoup
@@ -174,6 +175,37 @@ def test_parse_thread(url: str, thread_name_and_id: str, result: tuple[int, str,
     assert result_ == parsed
 
 
+def test_normalize_thread_request_url_removes_alias_segment() -> None:
+    url = AbsoluteHttpURL("https://simpcity.cr/threads/katelyn-s5410/ampisi-mrscampisi-thecampisis-the-campisis.125410/")
+    normalized = _forum.normalize_thread_request_url(url, thread_part_index=1, thread_name_index=3)
+    assert normalized == AbsoluteHttpURL(
+        "https://simpcity.cr/threads/ampisi-mrscampisi-thecampisis-the-campisis.125410/"
+    )
+
+
+@pytest.mark.asyncio
+async def test_fetch_thread_accepts_alias_segment_before_thread_name() -> None:
+    scrape_item = _item("https://simpcity.cr/threads/katelyn-s5410/ampisi-mrscampisi-thecampisis-the-campisis.125410/")
+    expected_request_url = AbsoluteHttpURL("https://simpcity.cr/threads/ampisi-mrscampisi-thecampisis-the-campisis.125410/")
+    expected_canonical_url = AbsoluteHttpURL("https://simpcity.cr/threads/ampisi-mrscampisi-thecampisis-the-campisis.125410")
+
+    with (
+        mock.patch.object(TEST_CRAWLER, "_check_thread_recursion"),
+        mock.patch.object(TEST_CRAWLER, "thread", new_callable=mock.AsyncMock) as thread_mock,
+    ):
+        await TEST_CRAWLER._fetch_thread(scrape_item)
+
+    assert scrape_item.url == expected_request_url
+    thread = thread_mock.await_args.args[1]
+    assert thread == _forum.Thread(
+        125410,
+        "ampisi-mrscampisi-thecampisis-the-campisis",
+        1,
+        None,
+        expected_canonical_url,
+    )
+
+
 @pytest.mark.parametrize(
     ("link", "out"),
     [
@@ -330,7 +362,6 @@ def test_extract_embed_url(input_string: str, expected_output: str) -> None:
     assert _forum.extract_embed_url(input_string) == expected_output
 
 
-@pytest.mark.xfail  # regex can not handle URLs with commands in it (kvs)
 @pytest.mark.parametrize(
     ("input_string", "expected_output"),
     [
@@ -338,13 +369,21 @@ def test_extract_embed_url(input_string: str, expected_output: str) -> None:
             r"start \/\/media.jp5.net/videos/2023/clip_id-123.mp4?autoplay=true&loop=false#t=10s end",
             "https://media.jp5.net/videos/2023/clip_id-123.mp4?autoplay=true&loop=false#t=10s",
         ),
-        (
-            r"start \/\/jupiter4.thisvid.com/key=SEtXHaueMU2PByWg4GNMnw,end=1750179436/speed=1.4/buffer=5.0/12702000/12702535/12702535.mp4 other",
-            "https://jupiter4.thisvid.com/key=SEtXHaueMU2PByWg4GNMnw,end=1750179436/speed=1.4/buffer=5.0/12702000/12702535/12702535.mp4",
-        ),
     ],
 )
 def test_extract_embed_url_complex_path(input_string: str, expected_output: str) -> None:
+    assert _forum.extract_embed_url(input_string) == expected_output
+
+
+def test_extract_embed_url_kvs_style_path_preserves_commands() -> None:
+    input_string = (
+        r"start \/\/jupiter4.thisvid.com/key=SEtXHaueMU2PByWg4GNMnw,end=1750179436/speed=1.4/"
+        r"buffer=5.0/12702000/12702535/12702535.mp4 other"
+    )
+    expected_output = (
+        "https://jupiter4.thisvid.com/key=SEtXHaueMU2PByWg4GNMnw,end=1750179436/speed=1.4/"
+        "buffer=5.0/12702000/12702535/12702535.mp4"
+    )
     assert _forum.extract_embed_url(input_string) == expected_output
 
 
@@ -894,3 +933,115 @@ POST_TEMPLATE = """
 </article>
 
 """
+
+def _load_xenforo_fixture(path: Path) -> BeautifulSoup:
+    return BeautifulSoup(path.read_text("utf-8"), "html.parser")
+
+SIMPCITY_WHOLE_THREAD_FIXTURE = Path(__file__).parent.parent / "test_files" / "xenforo" / "simpcity_whole_thread_les_chesticles.html"
+
+
+def _simpcity_fixture_posts() -> dict[int, _forum.ForumPost]:
+    crawler = crawler_instances[crawlers.SimpCityCrawler]
+    soup = _load_xenforo_fixture(SIMPCITY_WHOLE_THREAD_FIXTURE)
+    posts: dict[int, _forum.ForumPost] = {}
+    for article in soup.select(crawler.SELECTORS.posts.article):
+        post = _forum.ForumPost.new(article, crawler.SELECTORS.posts)
+        posts[post.id] = post
+    return posts
+
+
+async def _normalize_extracted_links(
+    crawler: xenforo.XenforoCrawler, post: _forum.ForumPost
+) -> list[str]:
+    normalized: list[str] = []
+    for link in crawler._external_links(post):
+        absolute = await crawler.get_absolute_link(link)
+        assert absolute is not None
+        normalized.append(str(absolute))
+    return normalized
+
+
+@pytest.mark.asyncio
+async def test_simpcity_whole_thread_preserves_extraction_regression_shape() -> None:
+    crawler = crawler_instances[crawlers.SimpCityCrawler]
+    posts = _simpcity_fixture_posts()
+
+    expected_images_by_post = {
+        659664: [
+            "https://simp1.selti-delivery.ru/images/ADE9702D-BAD9-4DAB-BE13-1340B334D45A.md.jpg",
+            "https://simp1.selti-delivery.ru/images/FAF16779-0151-461A-B56A-F6A5A7D5A6A7.md.jpg",
+            "https://simp1.selti-delivery.ru/images/36E0B645-741D-42D2-8923-4DF52311C502.md.jpg",
+        ],
+        761355: [
+            "https://simp4.selti-delivery.ru/g2rxt9qd8wc91.md.jpg",
+        ],
+        943678: [
+            "https://simp4.selti-delivery.ru/237q2qzze4m91f4cbe0e27fd2a15a.md.jpg",
+            "https://simp4.selti-delivery.ru/k3zqncz7l4m9191ce0eada5ace347.md.jpg",
+            "https://simp4.selti-delivery.ru/zyortmzbe4m9116f79626d853988b.md.jpg",
+        ],
+        3173859: [],
+        3174102: [],
+        3284977: [],
+        3297485: [],
+        3301990: [],
+        44157189: [
+            "https://simp6.selti-delivery.ru/images4/IMG_879659805eab35eeb647.md.jpg",
+        ],
+        44217641: [],
+        45075694: [],
+    }
+
+    expected_links_by_post = {
+        659664: [
+            "https://onlyfans.com/les.chesticles/media",
+            "https://instagram.com/les.chesticles?igshid=YmMyMTA2M2Y=",
+        ],
+        761355: [
+            "https://www.reddit.com/user/les-chesticles",
+            "https://www.depop.com/leschesticles",
+        ],
+        943678: [],
+        3173859: [
+            "https://onlyfans.com/u386107680",
+        ],
+        3174102: [],
+        3284977: [],
+        3297485: [],
+        3301990: [],
+        44157189: [],
+        44217641: [
+            "https://bunkr.cr/a/oFTJIwjx",
+        ],
+        45075694: [],
+    }
+
+    for post_id, expected_images in expected_images_by_post.items():
+        assert list(crawler._images(posts[post_id])) == expected_images
+
+    actual_links_by_post = {
+        post_id: await _normalize_extracted_links(crawler, post)
+        for post_id, post in posts.items()
+    }
+    assert actual_links_by_post == expected_links_by_post
+
+    all_links = {link for links in actual_links_by_post.values() for link in links}
+    assert all_links == {
+        "https://onlyfans.com/les.chesticles/media",
+        "https://instagram.com/les.chesticles?igshid=YmMyMTA2M2Y=",
+        "https://www.reddit.com/user/les-chesticles",
+        "https://www.depop.com/leschesticles",
+        "https://onlyfans.com/u386107680",
+        "https://bunkr.cr/a/oFTJIwjx",
+    }
+
+    assert {
+        link
+        for link in all_links
+        if "instagram.com" not in link and "bunkr.cr" not in link
+    } == {
+        "https://onlyfans.com/les.chesticles/media",
+        "https://www.reddit.com/user/les-chesticles",
+        "https://www.depop.com/leschesticles",
+        "https://onlyfans.com/u386107680",
+    }
