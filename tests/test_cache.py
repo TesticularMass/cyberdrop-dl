@@ -15,6 +15,7 @@ from cyberdrop_dl.cache import (
     cache_context,
     cached_fn,
     disk_cached_method,
+    periodic_cache_dump,
 )
 from cyberdrop_dl.config.appdata import AppData
 from cyberdrop_dl.manager import Manager
@@ -39,6 +40,21 @@ def test_cache_file_is_saved_in_ctx(tmp_path: Path) -> None:
 
     assert cache_file.is_file()
     assert json.loads(cache_file.read_text()) == {"test": 1, "version": __version__}
+
+
+async def test_periodic_cache_dump_writes_while_running(tmp_path: Path) -> None:
+    cache_file = tmp_path / "cache_file.txt"
+    cache: dict[str, Any] = {"test": 1}
+    async with periodic_cache_dump(cache_file, cache, interval=0.01):
+        for _ in range(100):
+            await asyncio.sleep(0.01)
+            if cache_file.is_file():
+                break
+
+        assert json.loads(cache_file.read_text()) == {"test": 1, "version": __version__}
+        assert not cache_file.with_suffix(".tmp").exists()
+
+    assert cache_file.is_file()
 
 
 def test_ttl_cache_creation() -> None:

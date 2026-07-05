@@ -43,6 +43,7 @@ def scrape(manager: Manager, source: URLsSource | RetryScrapeSource) -> None:
 
 async def _scrape(manager: Manager, source: URLsSource | RetryScrapeSource) -> None:
     from cyberdrop_dl import ffmpeg
+    from cyberdrop_dl.cache import periodic_cache_dump
     from cyberdrop_dl.scrape_mapper import ScrapeMapper
 
     manager.log_config_settings()
@@ -50,7 +51,7 @@ async def _scrape(manager: Manager, source: URLsSource | RetryScrapeSource) -> N
         _check_ffmpeg(manager.config)
 
     log_spacer()
-    async with manager.database:
+    async with manager.database, periodic_cache_dump(manager.appdata.cache_file, manager.cache):
         log_spacer()
         logger.info("Starting CDL...")
         async with ScrapeMapper(manager)() as scrape_mapper:

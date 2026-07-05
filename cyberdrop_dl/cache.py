@@ -13,7 +13,7 @@ from cyberdrop_dl import __version__
 from cyberdrop_dl.constants import MISSING
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Coroutine, Generator
+    from collections.abc import AsyncGenerator, Awaitable, Callable, Coroutine, Generator
     from pathlib import Path
     from types import CoroutineType
 
@@ -46,14 +46,10 @@ def _load_cache(content: str) -> dict[str, Any]:
     return data
 
 
-def _dump_cache(cache_file: Path, cache: dict[str, Any]):
-    cache["version"] = __version__
-    cache_file.write_text(json.dumps(cache, indent=2, ensure_ascii=False, sort_keys=True))
 
 
 @contextlib.contextmanager
 def cache_context(cache_file: Path, cache: dict[str, Any]) -> Generator[None]:
-    # TODO: Add a background task to dump cache to disk every 5 minutes
     try:
         content = cache_file.read_text()
     except FileNotFoundError:
@@ -69,7 +65,41 @@ def cache_context(cache_file: Path, cache: dict[str, Any]) -> Generator[None]:
     try:
         yield
     finally:
-        _dump_cache(cache_file, cache)
+        _write_atomic(cache_file, _serialize_cache(cache))
+
+
+def _serialize_cache(cache: dict[str, Any]) -> str:
+    cache["version"] = __version__
+    return json.dumps(cache, indent=2, ensure_ascii=False, sort_keys=True)
+
+
+def _write_atomic(cache_file: Path, content: str) -> None:
+    tmp_file = cache_file.with_suffix(".tmp")
+    tmp_file.write_text(content)
+    _ = tmp_file.replace(cache_file)
+
+
+@contextlib.asynccontextmanager
+async def periodic_cache_dump(cache_file: Path, cache: dict[str, Any], interval: float = 300) -> AsyncGenerator[None]:
+    """Persists the cache to disk every `interval` seconds so a crash does not lose it."""
+
+    async def dump_loop() -> None:
+        while True:
+            await asyncio.sleep(interval)
+            # serialize in the event loop for a consistent snapshot; only the write goes to a thread
+            content = _serialize_cache(cache)
+            try:
+                await asyncio.to_thread(_write_atomic, cache_file, content)
+            except OSError as e:
+                logger.warning(f"Unable to persist cache to disk: {e}")
+
+    task = asyncio.create_task(dump_loop(), name="periodic_cache_dump")
+    try:
+        yield
+    finally:
+        _ = task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
 
 @dataclasses.dataclass(slots=True)
