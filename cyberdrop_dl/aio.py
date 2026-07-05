@@ -130,11 +130,11 @@ async def next[T](async_iterator: AsyncIterator[T]) -> T:
         raise e.__cause__ or e from None
 
 
-async def peek_first[T](async_iterable: AsyncIterable[T], /) -> tuple[T, AsyncGenerator[T, None]]:
+async def peek_first[T](async_iterable: AsyncIterable[T], /) -> tuple[T, AsyncGenerator[T]]:
     async_iterator = aiter(async_iterable)
     first = await next(async_iterator)
 
-    async def yield_again() -> AsyncGenerator[T, None]:
+    async def yield_again() -> AsyncGenerator[T]:
         yield first
 
     return first, chain(yield_again(), async_iterator)

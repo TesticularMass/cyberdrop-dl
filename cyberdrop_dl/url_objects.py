@@ -8,10 +8,9 @@ import datetime
 import logging
 from enum import IntEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Self, final, overload
+from typing import TYPE_CHECKING, Any, Literal, Self, TypeIs, final, overload
 
 import yarl
-from typing_extensions import TypeIs
 
 from cyberdrop_dl import signature
 from cyberdrop_dl.exceptions import MaxChildrenError

@@ -94,16 +94,19 @@ class Sorter:
 
     async def _extract_archives(self) -> None:
         import zipfile
-        
+
         logger.info("Extracting zip archives...", extra={"color": "cyan"})
         async with asyncio.TaskGroup() as tg:
+
             async def extract_and_delete(zip_file: Path) -> None:
                 try:
+
                     def extract():
-                        with zipfile.ZipFile(zip_file, 'r') as zip_ref:
+                        with zipfile.ZipFile(zip_file, "r") as zip_ref:
                             zip_ref.extractall(zip_file.parent)
+
                     await asyncio.to_thread(extract)
-                    zip_file.unlink()
+                    await aio.unlink(zip_file)
                 except Exception:
                     logger.exception("Failed to unzip '%s'", zip_file)
                     self._tui.stats.errors += 1

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import datetime
 import random
 import string
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedDomains, SupportedPaths
@@ -81,14 +81,14 @@ class DoodStreamCrawler(Crawler):
 
         text = await self.request_text(api_url.with_host(host), impersonate=True)
         random_padding = "".join(random.choice(TOKEN_CHARS) for _ in range(10))
-        expire = int(datetime.now(UTC).timestamp() * 1000)
+        expire = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
         download_url = self.parse_url(text + random_padding)
         return download_url.with_query(token=token, expiry=expire)
 
 
 def _get_md5_path(soup: BeautifulSoup) -> str:
     js_text = css.select_text(soup, _SELECTORS.MD5_JS)
-    return get_text_between(js_text, "/pass_md5/", "'")
+    return extr_text(js_text, "/pass_md5/", "'")
 
 
 def _get_file_id(soup: BeautifulSoup) -> str:

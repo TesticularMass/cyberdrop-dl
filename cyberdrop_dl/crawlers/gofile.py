@@ -3,9 +3,7 @@ from __future__ import annotations
 import hashlib
 import itertools
 import time
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, NotRequired, TypedDict, TypeGuard
-
-from typing_extensions import ReadOnly
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, NotRequired, ReadOnly, TypedDict, TypeGuard
 
 from cyberdrop_dl import aio, env
 from cyberdrop_dl.cache import disk_cached_method

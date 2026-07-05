@@ -4,7 +4,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from cyberdrop_dl.crawlers.bunkr import _HOST_OPTIONS as HOST_OPTIONS, BunkrCrawler as BunkrrCrawler
+from cyberdrop_dl.crawlers.bunkr import _HOST_OPTIONS as HOST_OPTIONS
+from cyberdrop_dl.crawlers.bunkr import BunkrCrawler as BunkrrCrawler
 from cyberdrop_dl.url_objects import AbsoluteHttpURL
 
 
@@ -16,7 +17,6 @@ async def test_new_bunkrr_crawler_does_not_inherit_bad_hosts(manager, monkeypatc
 
     async def fail_and_mark_bad(request_url):
         first.known_bad_hosts.add(request_url.host)
-        return None
 
     monkeypatch.setattr(first, "_try_request_soup", fail_and_mark_bad)
     monkeypatch.setattr(first, "request_soup", AsyncMock(side_effect=RuntimeError("all hosts failed")))
