@@ -176,17 +176,19 @@ class MessageBoardCrawler(Crawler, is_abc=True):
     # TODO: move login logic to the base crawler
     login_required: ClassVar[bool | None] = None
     PASSWORD_REGEX: ClassVar[re.Pattern[str]] = re.compile(
-        r"(?:^|\s)(?:password|pass|pw)s?\s*(?:[:=]|\s+is\s+)\s*(?:Spoiler\s*)?([^\s<>\n\r\t]+)", re.IGNORECASE
+        r"(?:^|\s)(?:password|pass|pw|key|decryption\s*key)s?\s*(?:[:=-]|\s+is\s+)\s*(?:Spoiler\s*)?([^\s<>\n\r\t]+)", re.IGNORECASE
     )
 
     def extract_password(self, post: ForumPostProtocol) -> str | None:
         # Handle Xenforo spoiler buttons specifically (e.g. [SPOILER="Password"]secret[/SPOILER])
         for spoiler in post.content.select(".bbCodeSpoiler"):
             button = spoiler.select_one(".bbCodeSpoiler-button")
-            if button and "password" in button.get_text(strip=True).lower():
-                content = spoiler.select_one(".bbCodeBlock-content")
-                if content:
-                    return content.get_text(strip=True)
+            if button:
+                button_text = button.get_text(strip=True).lower()
+                if any(k in button_text for k in ("password", "pass", "pw", "key")):
+                    content = spoiler.select_one(".bbCodeBlock-content")
+                    if content:
+                        return content.get_text(strip=True)
 
         text = post.content.get_text(separator=" ", strip=True)
         if match := self.PASSWORD_REGEX.search(text):
@@ -468,6 +470,7 @@ class HTMLMessageBoardCrawler(MessageBoardCrawler, is_abc=True):
         stats: dict[str, int] = {}
 
         if password := self.extract_password(post):
+            print(f"EXTRACTED PASSWORD: {password}")
             scrape_item.password = password
 
         async with self.new_task_group(scrape_item) as tg:
