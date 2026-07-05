@@ -71,12 +71,17 @@ def _scan_and_create_hashes(manager: Manager) -> None:
 
 
 def _sort_files(manager: Manager) -> None:
-    sorter = Sorter.from_config(manager.config)
+    sorter = Sorter.from_config(manager.config, database=manager.database)
     console.warning(
         f"You are about to sort files from '{sorter.input_dir}' to '{sorter.output_dir}'",
     )
     if ask_confirmation(explicit=True):
-        aio.run(sorter.run())
+
+        async def sort_w_database() -> None:
+            async with manager.database:
+                await sorter.run()
+
+        aio.run(sort_w_database())
         enter_to_continue()
 
 

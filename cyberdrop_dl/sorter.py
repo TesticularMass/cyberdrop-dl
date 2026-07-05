@@ -3,16 +3,18 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import datetime
+import errno
 import hashlib
 import logging
 import shutil
+import struct
 from pathlib import Path
 from subprocess import CalledProcessError
 from typing import TYPE_CHECKING, Self
 
 import imagesize
 
-from cyberdrop_dl import aio, ffmpeg
+from cyberdrop_dl import aio, archives, ffmpeg
 from cyberdrop_dl.constants import FileExt, TempExt
 from cyberdrop_dl.models.validators import strings
 from cyberdrop_dl.progress.sorting import SortingUI, SortStats
@@ -20,6 +22,9 @@ from cyberdrop_dl.utils import cleanup
 
 if TYPE_CHECKING:
     from cyberdrop_dl.config import Config
+    from cyberdrop_dl.database import Database
+
+_MAX_PASSWORD_CANDIDATES = 20
 
 
 logger = logging.getLogger(__name__)
@@ -36,6 +41,7 @@ class Sorter:
     non_media_format: str | None
     unzip_archives: bool = False
     incrementer_format: str = "{i}"
+    database: Database | None = None
 
     _tui: SortingUI = dataclasses.field(init=False, repr=False)
 
@@ -47,7 +53,7 @@ class Sorter:
         return self._tui.stats
 
     @classmethod
-    def from_config(cls, config: Config) -> Self:
+    def from_config(cls, config: Config, database: Database | None = None) -> Self:
         settings = config.sort
         return cls(
             input_dir=settings.input_folder or config.download_folder,
@@ -58,6 +64,7 @@ class Sorter:
             image_format=settings.formats.image,
             video_format=settings.formats.video,
             non_media_format=settings.formats.non_media,
+            database=database,
         )
 
     async def run(self, *, disable_tui: bool = False) -> None:
@@ -93,27 +100,61 @@ class Sorter:
         cleanup.rm_empty_dirs(self.input_dir)
 
     async def _extract_archives(self) -> None:
-        import zipfile
-
-        logger.info("Extracting zip archives...", extra={"color": "cyan"})
+        logger.info("Extracting archives...", extra={"color": "cyan"})
         async with asyncio.TaskGroup() as tg:
+            async for path in aio.rglob(self.input_dir, "*"):
+                if path.suffix.lower() in archives.SUPPORTED_SUFFIXES and await aio.is_file(path):
+                    _ = tg.create_task(self._extract_archive(path))
 
-            async def extract_and_delete(zip_file: Path) -> None:
-                try:
+    async def _extract_archive(self, archive: Path) -> None:
+        try:
+            await self._extract_w_passwords(archive)
+        except archives.EncryptedArchiveError as e:
+            logger.warning("%s; extract it manually", e, extra={"color": "yellow"})
+            self._tui.stats.errors += 1
+        except archives.CorruptedArchiveError as e:
+            logger.error("%s; re-download or delete it", e, extra={"color": "red"})
+            self._tui.stats.errors += 1
+        except archives.UnsupportedArchiveError as e:
+            logger.warning("Unable to extract '%s': %s", archive.name, e, extra={"color": "yellow"})
+            self._tui.stats.errors += 1
+        except OSError as e:
+            logger.error("Unable to extract '%s': %s", archive.name, _os_error_hint(e), extra={"color": "red"})
+            self._tui.stats.errors += 1
+        except Exception:
+            # task boundary: an uncaught exception would cancel every other extraction
+            logger.exception("Unknown error while extracting '%s'", archive)
+            self._tui.stats.errors += 1
+        else:
+            await aio.unlink(archive)
 
-                    def extract():
-                        with zipfile.ZipFile(zip_file, "r") as zip_ref:
-                            zip_ref.extractall(zip_file.parent)
+    async def _extract_w_passwords(self, archive: Path) -> None:
+        try:
+            return await asyncio.to_thread(archives.extract, archive)
+        except archives.EncryptedArchiveError:
+            pass
 
-                    await asyncio.to_thread(extract)
-                    await aio.unlink(zip_file)
-                except Exception:
-                    logger.exception("Failed to unzip '%s'", zip_file)
-                    self._tui.stats.errors += 1
+        candidates = await self._password_candidates(archive)
+        if not candidates:
+            raise archives.EncryptedArchiveError(f"'{archive.name}' is password protected and no passwords are known")
 
-            async for path in aio.rglob(self.input_dir, "*.zip"):
-                if await aio.is_file(path):
-                    _ = tg.create_task(extract_and_delete(path))
+        for password in candidates:
+            try:
+                return await asyncio.to_thread(archives.extract, archive, password=password)
+            except archives.WrongPasswordError:
+                continue
+
+        msg = f"'{archive.name}' is password protected; tried {len(candidates)} known password(s), none matched"
+        raise archives.EncryptedArchiveError(msg)
+
+    async def _password_candidates(self, archive: Path) -> list[str]:
+        if self.database is None:
+            return []
+        candidates = await self.database.history.get_passwords_for_file(str(archive.parent), archive.name)
+        for password in await self.database.history.get_all_passwords():
+            if password not in candidates:
+                candidates.append(password)
+        return candidates[:_MAX_PASSWORD_CANDIDATES]
 
     async def _sort_file(self, folder_name: str, file: Path) -> None:
         ext = file.suffix.lower()
@@ -129,6 +170,9 @@ class Sorter:
                 return await self.sort_video(file, folder_name)
             await self.sort_other(file, folder_name)
 
+        except OSError as e:
+            logger.error("Unable to sort '%s': %s", file, _os_error_hint(e), extra={"color": "red"})
+            self._tui.stats.errors += 1
         except Exception:
             logger.exception("Unknown error while sorting '%s'", file)
             self._tui.stats.errors += 1
@@ -170,8 +214,8 @@ class Sorter:
                 exif_rotation=True,
                 channels=False,
             )
-        except Exception:
-            logger.exception("Unable to get some image properties of '%s'", file)
+        except (OSError, ValueError, struct.error) as e:
+            logger.warning("Unable to get some image properties of '%s': %s", file, e)
         else:
             width, height = info.width, info.height
             resolution = f"{width}x{height}"
@@ -330,3 +374,11 @@ async def _try_probe(kind: str, file: Path) -> ffmpeg.FFprobeResult | None:
         return await ffmpeg.probe(file)
     except (RuntimeError, CalledProcessError, OSError):
         logger.exception("Unable to get %s properties of '%s'", kind, file)
+
+
+def _os_error_hint(e: OSError) -> str:
+    if e.errno == errno.ENOSPC:
+        return f"disk full ({e})"
+    if e.errno in (errno.EACCES, errno.EPERM):
+        return f"permission denied ({e})"
+    return str(e)

@@ -92,7 +92,7 @@ class Manager:
         self.__resolve_paths()
         self.database = Database(self.appdata.db_file, self.config.ignore_history)
         self.deduper = Czkawka.from_manager(self)
-        self.sorter = Sorter.from_config(self.config)
+        self.sorter = Sorter.from_config(self.config, database=self.database)
         with (
             self.exit_stack,
             cache_context(self.appdata.cache_file, self.cache),

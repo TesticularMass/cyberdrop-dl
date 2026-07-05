@@ -1,12 +1,16 @@
+import base64
 import datetime
 import itertools
 import shutil
+import zipfile
 from pathlib import Path
 from typing import Never
 
 import pytest
 
+from cyberdrop_dl.database import Database
 from cyberdrop_dl.sorter import Sorter, _format_dest, _have_same_content, _move_file
+from tests.test_archives import _CONTENT, _PASSWORD, _ZIPCRYPTO_B64
 
 DOWNLOADS = Path("/mnt/home/user/downloads/cdl/")
 SORT_DIR = DOWNLOADS.parent / "cdl_sorted"
@@ -203,3 +207,88 @@ async def test_sorter(tmp_path: Path) -> None:
             ]
         )
     )
+
+
+def _make_sorter(input_dir: Path, output_dir: Path, database: Database | None = None) -> Sorter:
+    return Sorter(
+        input_dir=input_dir,
+        output_dir=output_dir,
+        audio_format=None,
+        image_format=None,
+        video_format=None,
+        non_media_format="{sort_dir}/other/{filename}{ext}",
+        unzip_archives=True,
+        database=database,
+    )
+
+
+async def _seed_password(db: Database, download_path: Path, filename: str, password: str) -> None:
+    query = """
+    INSERT INTO media (domain, url_path, referer, download_path, download_filename, original_filename,
+                       password, completed, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+    """
+    params = ("test", f"/{filename}", "https://example.com", str(download_path), filename, filename, password)
+    await db.conn.execute(query, params)
+    await db.conn.commit()
+
+
+async def test_sorter_extracts_archive_with_db_password(tmp_path: Path) -> None:
+    input_dir = tmp_path / "downloads"
+    input_dir.mkdir()
+    archive = input_dir / "protected.zip"
+    archive.write_bytes(base64.b64decode(_ZIPCRYPTO_B64))
+
+    async with Database(tmp_path / "test_db.db") as db:
+        await _seed_password(db, input_dir, archive.name, _PASSWORD)
+        sorter = _make_sorter(input_dir, tmp_path / "sorted", db)
+        await sorter.run(disable_tui=True)
+
+    assert not archive.exists()
+    assert (tmp_path / "sorted/other/secret.txt").read_bytes() == _CONTENT
+    assert sorter.stats.errors == 0
+
+
+async def test_sorter_keeps_archive_when_no_password_matches(tmp_path: Path) -> None:
+    input_dir = tmp_path / "downloads"
+    input_dir.mkdir()
+    archive = input_dir / "protected.zip"
+    archive.write_bytes(base64.b64decode(_ZIPCRYPTO_B64))
+
+    async with Database(tmp_path / "test_db.db") as db:
+        await _seed_password(db, input_dir, archive.name, "not-the-password")
+        sorter = _make_sorter(input_dir, tmp_path / "sorted", db)
+        await sorter.run(disable_tui=True)
+
+    # extraction failed so the archive is kept, but the sort pass still moves it as non-media
+    assert (tmp_path / "sorted/other/protected.zip").exists()
+    assert not (tmp_path / "sorted/other/secret.txt").exists()
+    assert sorter.stats.errors == 1
+
+
+async def test_sorter_extracts_plain_archive_without_db(tmp_path: Path) -> None:
+    input_dir = tmp_path / "downloads"
+    input_dir.mkdir()
+    archive = input_dir / "plain.zip"
+    with zipfile.ZipFile(archive, "w") as zip_file:
+        zip_file.writestr("notes.txt", _CONTENT)
+
+    sorter = _make_sorter(input_dir, tmp_path / "sorted")
+    await sorter.run(disable_tui=True)
+
+    assert not archive.exists()
+    assert (tmp_path / "sorted/other/notes.txt").read_bytes() == _CONTENT
+
+
+async def test_sorter_corrupted_archive_is_kept_and_counted(tmp_path: Path) -> None:
+    input_dir = tmp_path / "downloads"
+    input_dir.mkdir()
+    archive = input_dir / "corrupt.zip"
+    archive.write_bytes(b"PK\x03\x04 this is not really a zip")
+
+    sorter = _make_sorter(input_dir, tmp_path / "sorted")
+    await sorter.run(disable_tui=True)
+
+    # extraction failed so the archive is kept, but the sort pass still moves it as non-media
+    assert (tmp_path / "sorted/other/corrupt.zip").exists()
+    assert sorter.stats.errors == 1
