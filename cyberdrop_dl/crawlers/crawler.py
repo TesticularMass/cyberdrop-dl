@@ -549,6 +549,7 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
             ext=ext or Path(filename).suffix,
             original_filename=filename,
             parents=tuple(scrape_item.parents),
+            password=scrape_item.password,
             uploaded_at=uploaded_at or scrape_item.uploaded_at,
             debrid_url=_prepare_debrid_url(debrid_link),
             json_check=self.__json_resp_check__,

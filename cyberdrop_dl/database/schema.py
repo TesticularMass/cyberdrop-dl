@@ -146,3 +146,8 @@ CREATE INDEX idx_media_domain_url_path_referer
 CREATE INDEX idx_media_referer_completed
     ON media (referer, completed);
 """.strip()
+
+V10_1_0 = V9_15_0.replace(
+    "  album_id TEXT,\n  completed INTEGER NOT NULL,",
+    "  album_id TEXT,\n  password TEXT,\n  completed INTEGER NOT NULL,",
+)

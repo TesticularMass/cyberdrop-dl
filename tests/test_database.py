@@ -151,7 +151,23 @@ async def test_db_schema_dump(tmp_cwd: Path) -> None:
     async with Database(db_file) as db:
         current_schema = await schema.dump(db.conn)
 
-    assert current_schema == schema.V9_15_0
+    assert current_schema == schema.V10_1_0
+
+
+async def test_db_upgrade_adds_password_column(tmp_cwd: Path) -> None:
+    db_file = tmp_cwd / "test_db.db"
+
+    async with Database(db_file).connect() as db:
+        await db.conn.executescript(schema.V9_15_0)
+        await db.conn.commit()
+        await db.schema.create()
+        await db.schema.update(schema.Version(10, 0, 0))
+
+    async with Database(db_file) as db:
+        cursor = await db.conn.execute("PRAGMA table_info(media)")
+        columns = {row["name"] for row in await cursor.fetchall()}
+        assert "password" in columns
+        assert await db.schema.get_version() == schema.CURRENT_VERSION
 
 
 def test_create_item_from_row() -> None:

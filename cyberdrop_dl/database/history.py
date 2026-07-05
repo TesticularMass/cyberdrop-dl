@@ -102,13 +102,13 @@ class HistoryTable(Table, name="media"):
 
             insert_query = """
             INSERT OR IGNORE INTO media (
-            domain, url_path, referer, album_id,
+            domain, url_path, referer, album_id, password,
             download_path, download_filename,
             original_filename, completed, created_at
             )
             VALUES
             (
-                ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP
             );
             """
 
@@ -119,6 +119,7 @@ class HistoryTable(Table, name="media"):
                     url_path,
                     str(media_item.referer),
                     media_item.album_id,
+                    media_item.password,
                     str(media_item.download_folder),
                     download_filename,
                     media_item.original_filename,
@@ -128,6 +129,9 @@ class HistoryTable(Table, name="media"):
             if download_filename:
                 query = "UPDATE media SET download_filename = ? WHERE domain = ? and url_path = ?"
                 await cursor.execute(query, (download_filename, domain, url_path))
+            if media_item.password:
+                query = "UPDATE media SET password = ? WHERE domain = ? and url_path = ? and password IS NULL"
+                await cursor.execute(query, (media_item.password, domain, url_path))
             await db_conn.commit()
 
     async def mark_complete(self, domain: str, media_item: MediaItem) -> None:
@@ -187,8 +191,32 @@ class HistoryTable(Table, name="media"):
             if row := await cursor.fetchone():
                 return row["download_filename"]
 
+    async def get_passwords_for_file(self, folder: str, filename: str) -> list[str]:
+        """Returns the passwords associated with a downloaded file, most recent first."""
+        query = """
+        SELECT password FROM media
+        WHERE download_path = ? AND download_filename = ? AND password IS NOT NULL
+        GROUP BY password ORDER BY MAX(created_at) DESC
+        """
+        async with self.db.reader() as db_conn:
+            cursor = await db_conn.execute(query, (folder, filename))
+            rows = await cursor.fetchall()
+            return [row["password"] for row in rows]
+
+    async def get_all_passwords(self) -> list[str]:
+        """Returns every distinct password ever scraped, most recent first."""
+        query = """
+        SELECT password FROM media WHERE password IS NOT NULL
+        GROUP BY password ORDER BY MAX(created_at) DESC
+        """
+        async with self.db.reader() as db_conn:
+            cursor = await db_conn.execute(query)
+            rows = await cursor.fetchall()
+            return [row["password"] for row in rows]
+
 
 async def apply_fixes(db_conn: aiosqlite.Connection) -> None:
+    await _ensure_password_column(db_conn)
     await _fix_domains(db_conn)
     await _fix_referers(db_conn)
 
@@ -252,3 +280,12 @@ def _generic_fix_referer(crawler: type[Crawler]) -> Callable[[str], str]:
 
     fix_db_referer.__name__ = f"fix_{crawler.DOMAIN}_referer"
     return fix_db_referer
+
+async def _ensure_password_column(db_conn: aiosqlite.Connection) -> None:
+    with _timed_update("password column"):
+        try:
+            await db_conn.execute("ALTER TABLE media ADD COLUMN password TEXT;")
+        except aiosqlite.OperationalError:
+            pass
+        await db_conn.commit()
+

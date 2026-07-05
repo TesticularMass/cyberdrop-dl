@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS media (
   file_size INT,
   duration FLOAT,
   album_id TEXT,
+  password TEXT,
   completed INTEGER NOT NULL,
   created_at TIMESTAMP,
   completed_at TIMESTAMP,

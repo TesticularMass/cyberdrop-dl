@@ -137,6 +137,7 @@ class MediaItem:
     duration: float | None = None
     is_segment: bool = False
     album_id: str | None = None
+    password: str | None = None
     uploaded_at: int | None = None
     xxhash: str | None = None
     thumbnail: AbsoluteHttpURL | None = None
