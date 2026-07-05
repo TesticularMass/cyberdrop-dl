@@ -1,6 +1,7 @@
 from typing import Annotated, Any, Literal, override
 
-from pydantic import Field
+from cyclopts import Parameter
+from pydantic import Field, PositiveFloat
 from pydantic.functional_validators import AfterValidator
 
 from cyberdrop_dl.models import ConfigGroup, ConfigModel
@@ -144,6 +145,11 @@ class GenericCrawlers(ConfigModel):
 class Crawlers(ConfigGroup, name=None):
     disabled: set[NonEmptyStr] = Field(default_factory=set)
     "Name of crawlers to disable for the current run"
+
+    rate_limits: Annotated[dict[NonEmptyStr, tuple[PositiveFloat, PositiveFloat]], Parameter(parse=False)] = Field(
+        default_factory=dict
+    )
+    "Override the rate limit of a crawler (by domain) as [requests, seconds], e.g. {'simpcity': [1, 5]}"
 
     bandcamp: BandcampConfig = Field(default_factory=BandcampConfig)
     clypit: ClypitConfig = Field(default_factory=ClypitConfig)

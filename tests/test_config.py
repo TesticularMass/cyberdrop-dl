@@ -5,6 +5,7 @@ import json
 import os
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 import yaml
@@ -18,6 +19,9 @@ from cyberdrop_dl.config.auth import Authentication, Notifications
 from cyberdrop_dl.config.filters import Filters, _FileFilter
 from cyberdrop_dl.exceptions import CDLConfigRuntimeErrorsGroup
 from cyberdrop_dl.models import AppriseURL, merge_additive_args, merge_dicts
+
+if TYPE_CHECKING:
+    from cyberdrop_dl.manager import Manager
 
 
 def test_config_equality() -> None:
@@ -306,6 +310,19 @@ def test_config_default_has_not_changed() -> None:
 
 def test_config_can_be_serialized_as_json() -> None:
     Config().model_dump_json()
+
+
+async def test_crawler_rate_limit_config_override(running_manager: Manager) -> None:
+    from cyberdrop_dl.crawlers.catbox import CatboxCrawler
+
+    running_manager.config.crawlers.rate_limits.update({CatboxCrawler.DOMAIN: (2, 5)})
+    crawler = CatboxCrawler(running_manager)
+    await crawler.__async_init__()
+
+    limiter = running_manager.http_client.rate_limits[CatboxCrawler.DOMAIN]
+    # w_no_burst(2, 5) spreads 2 requests evenly over 5 seconds
+    assert limiter.max_rate == 1
+    assert limiter.time_period == 2.5
 
 
 def test_config_defaults_are_valid() -> None:

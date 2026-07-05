@@ -60,6 +60,7 @@ crawlers:
     - gifs/public
     - videos
     - videos/upload
+  rate_limits: {}
   tiktok:
     original: false
   twitter:
@@ -185,7 +186,6 @@ notifications:
 restrict_path: []
 sort:
   enabled: false
-  unzip_archives: false
   formats:
     audio: '{sort_dir}/{base_dir}/Audio/{filename}{ext}'
     image: '{sort_dir}/{base_dir}/Images/{filename}{ext}'
@@ -194,6 +194,7 @@ sort:
     video: '{sort_dir}/{base_dir}/Videos/{filename}{ext}'
   input_folder: null
   output_folder: downloads/cyberdrop-dl sorted
+  unzip_archives: false
 subfolders:
   create: true
   include:

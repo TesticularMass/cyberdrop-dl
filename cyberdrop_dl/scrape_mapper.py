@@ -161,6 +161,9 @@ class ScrapeMapper:
         msg = f"Loaded {len(crawlers) + n_generics:,} crawlers ({len(crawlers):,} concrete, {n_generics:,} generic)"
         logger.debug(msg)
 
+        if unknown_domains := sorted(set(self.manager.config.crawlers.rate_limits) - set(self.crawlers)):
+            logger.warning(f"rate_limits config references unknown crawler domains: {', '.join(unknown_domains)}")
+
         _disable_crawlers_by_config(self.crawlers, *self.manager.config.crawlers.disabled)
 
     @contextlib.asynccontextmanager

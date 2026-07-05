@@ -267,7 +267,11 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
             if self._ready:
                 return
 
-            self.client.limiter[self.DOMAIN] = self.__http_ctx__.rate_limit
+            rate_limit = self.config.crawlers.rate_limits.get(self.DOMAIN) or self.__http_ctx__.rate_limit
+            if rate_limit != self.__http_ctx__.rate_limit:
+                self.log.info(f"Rate limit of {self.DOMAIN} overridden by config: {rate_limit}")
+            self.client.limiter[self.DOMAIN] = rate_limit
+
             try:
                 await self.__async_post_init__()
             except Exception:

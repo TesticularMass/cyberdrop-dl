@@ -159,6 +159,28 @@
           "type": "array",
           "uniqueItems": true
         },
+        "rate_limits": {
+          "additionalProperties": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "number"
+              },
+              {
+                "exclusiveMinimum": 0,
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/NonEmptyStr"
+          },
+          "title": "Rate Limits",
+          "type": "object"
+        },
         "bandcamp": {
           "$ref": "#/$defs/BandcampConfig"
         },
@@ -963,6 +985,11 @@
         "enabled": {
           "default": false,
           "title": "Enabled",
+          "type": "boolean"
+        },
+        "unzip_archives": {
+          "default": false,
+          "title": "Unzip Archives",
           "type": "boolean"
         },
         "input_folder": {
