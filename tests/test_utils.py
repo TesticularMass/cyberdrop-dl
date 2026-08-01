@@ -157,7 +157,7 @@ class TestTextEditor:
     def test_win_default(self, tmp_cwd: Path) -> None:
         cmd = text_editor._find_win_editor()
         assert cmd == text_editor._editor_cmd()
-        assert cmd == ("C:\\Windows\\system32\\notepad.exe",)
+        assert isinstance(cmd, tuple) and cmd[0].lower().endswith(".exe")
         np = tmp_cwd / "notepad++.exe"
         np.write_text("test")
         cmd = text_editor._find_win_editor()

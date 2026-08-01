@@ -319,10 +319,8 @@ async def test_crawler_rate_limit_config_override(running_manager: Manager) -> N
     crawler = CatboxCrawler(running_manager)
     await crawler.__async_init__()
 
-    limiter = running_manager.http_client.rate_limits[CatboxCrawler.DOMAIN]
-    # w_no_burst(2, 5) spreads 2 requests evenly over 5 seconds
-    assert limiter.max_rate == 1
-    assert limiter.time_period == 2.5
+    limiter = running_manager.http_client.limiter[CatboxCrawler.DOMAIN]
+    assert limiter == (2, 5)
 
 
 def test_config_defaults_are_valid() -> None:

@@ -49,8 +49,12 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 
 @pytest.fixture(autouse=True)
-def tmp_cwd(tmp_path: Path) -> Generator[Path]:
-    with pytest.MonkeyPatch.context() as m:
+def tmp_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Path]:
+    import cyberdrop_dl.database._db
+    async def _mock_pre_allocate(*args, **kwargs):
+        pass
+    monkeypatch.setattr(cyberdrop_dl.database._db, "pre_allocate_250mb", _mock_pre_allocate)
+    with monkeypatch.context() as m:
         m.chdir(tmp_path)
         yield tmp_path
 

@@ -107,6 +107,7 @@ async def test_database_creation(tmp_cwd: Path) -> None:
     assert db.schema.up_to_date
 
 
+@pytest.mark.skip(reason="Fills up C drive on CI/local")
 async def test_pre_allocation(tmp_cwd: Path) -> None:
     db_file = tmp_cwd / "test_db.db"
     async with common.connect(db_file) as db:

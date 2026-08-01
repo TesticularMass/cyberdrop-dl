@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from unittest import mock
 from unittest.mock import AsyncMock
 
 import pytest
@@ -11,8 +12,8 @@ from cyberdrop_dl.url_objects import AbsoluteHttpURL
 
 @pytest.mark.asyncio
 async def test_new_bunkrr_crawler_does_not_inherit_bad_hosts(manager, monkeypatch) -> None:
-    first = BunkrrCrawler(manager)
-    second = BunkrrCrawler(manager)
+    first = BunkrrCrawler(manager, mock.MagicMock(), mock.MagicMock())
+    second = BunkrrCrawler(manager, mock.MagicMock(), mock.MagicMock())
     url = AbsoluteHttpURL("https://bunkr.site/a/test")
 
     async def fail_and_mark_bad(request_url):

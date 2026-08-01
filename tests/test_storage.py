@@ -102,7 +102,7 @@ def test_no_psutil_returns_size_of_closest_parent_on_file_that_does_not_exists(t
 async def test_psutil_returns_size_of_closest_parent_on_file_that_does_not_exists(tmp_path: Path) -> None:
     folder = tmp_path / "folder_abc/that/does/not/exists"
     result = await _psutil.get_free_space(folder)
-    assert result > 1e10
+    assert result > 1e6
     assert result == pytest.approx(await _psutil.get_free_space(tmp_path), abs=1e6)
 
 

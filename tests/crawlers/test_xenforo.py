@@ -186,7 +186,7 @@ def test_normalize_thread_request_url_removes_alias_segment() -> None:
 
 
 @pytest.mark.asyncio
-async def test_fetch_thread_accepts_alias_segment_before_thread_name() -> None:
+async def test_fetch_thread_accepts_alias_segment_before_thread_name(manager: cyberdrop_dl.manager.Manager) -> None:
     scrape_item = _item("https://simpcity.cr/threads/katelyn-s5410/ampisi-mrscampisi-thecampisis-the-campisis.125410/")
     expected_request_url = AbsoluteHttpURL(
         "https://simpcity.cr/threads/ampisi-mrscampisi-thecampisis-the-campisis.125410/"
@@ -195,14 +195,16 @@ async def test_fetch_thread_accepts_alias_segment_before_thread_name() -> None:
         "https://simpcity.cr/threads/ampisi-mrscampisi-thecampisis-the-campisis.125410"
     )
 
+    crawler = TEST_CRAWLER(manager, mock.MagicMock(), mock.MagicMock())
+
     with (
-        mock.patch.object(TEST_CRAWLER, "_check_thread_recursion"),
-        mock.patch.object(TEST_CRAWLER, "thread", new_callable=mock.AsyncMock) as thread_mock,
+        mock.patch.object(crawler, "_check_thread_recursion"),
+        mock.patch.object(crawler, "thread", new_callable=mock.AsyncMock) as thread_mock,
     ):
-        await TEST_CRAWLER._fetch_thread(scrape_item)
+        await crawler._fetch_thread(scrape_item)
 
     assert scrape_item.url == expected_request_url
-    thread = thread_mock.await_args.args[1]
+    thread = thread_mock.await_args.args[0]
     assert thread == _forum.Thread(
         125410,
         "ampisi-mrscampisi-thecampisis-the-campisis",
@@ -970,8 +972,9 @@ async def _normalize_extracted_links(crawler: xenforo.XenforoCrawler, post: _for
 
 
 @pytest.mark.asyncio
-async def test_simpcity_whole_thread_preserves_extraction_regression_shape() -> None:
-    crawler = crawler_instances[crawlers.SimpCityCrawler]
+async def test_simpcity_whole_thread_preserves_extraction_regression_shape(manager: cyberdrop_dl.manager.Manager) -> None:
+    crawler = crawlers.SimpCityCrawler(manager, mock.MagicMock(), mock.MagicMock())
+    await crawler.__async_init__()
     posts = _simpcity_fixture_posts()
 
     expected_images_by_post = {

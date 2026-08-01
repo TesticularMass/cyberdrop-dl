@@ -201,7 +201,7 @@ class HistoryTable(Table, name="media"):
         async with self.db.reader() as db_conn:
             cursor = await db_conn.execute(query, (folder, filename))
             rows = await cursor.fetchall()
-            return [row["password"] for row in rows]
+            return [row[0] for row in rows]
 
     async def get_all_passwords(self) -> list[str]:
         """Returns every distinct password ever scraped, most recent first."""
@@ -212,7 +212,7 @@ class HistoryTable(Table, name="media"):
         async with self.db.reader() as db_conn:
             cursor = await db_conn.execute(query)
             rows = await cursor.fetchall()
-            return [row["password"] for row in rows]
+            return [row[0] for row in rows]
 
 
 async def apply_fixes(db_conn: aiosqlite.Connection) -> None:
