@@ -358,6 +358,12 @@ class Network(ConfigGroup):
     flaresolverr_concurrency: PositiveInt = 1
     "Number of concurrent requests to make with Flaresolverr"
 
+    playwright: bool = False
+    "Use Playwright to bypass Cloudflare/DDOS-Guard challenges automatically"
+
+    playwright_visible: bool = False
+    "Show the Playwright browser window instead of running headlessly"
+
     proxy: Annotated[FalsyAsNone[HttpURL], Parameter(alias=("http-proxy"))] = None
     "HTTP/HTTPS proxy"
 

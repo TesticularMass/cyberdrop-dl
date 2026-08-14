@@ -204,7 +204,7 @@ async def test_fetch_thread_accepts_alias_segment_before_thread_name(manager: cy
         await crawler._fetch_thread(scrape_item)
 
     assert scrape_item.url == expected_request_url
-    thread = thread_mock.await_args.args[0]
+    thread = thread_mock.await_args.args[1]
     assert thread == _forum.Thread(
         125410,
         "ampisi-mrscampisi-thecampisis-the-campisis",
@@ -952,8 +952,7 @@ SIMPCITY_WHOLE_THREAD_FIXTURE = (
 )
 
 
-def _simpcity_fixture_posts() -> dict[int, _forum.ForumPost]:
-    crawler = crawler_instances[crawlers.SimpCityCrawler]
+def _simpcity_fixture_posts(crawler: _forum.ForumCrawler) -> dict[int, _forum.ForumPost]:
     soup = _load_xenforo_fixture(SIMPCITY_WHOLE_THREAD_FIXTURE)
     posts: dict[int, _forum.ForumPost] = {}
     for article in soup.select(crawler.SELECTORS.posts.article):
@@ -972,10 +971,10 @@ async def _normalize_extracted_links(crawler: xenforo.XenforoCrawler, post: _for
 
 
 @pytest.mark.asyncio
-async def test_simpcity_whole_thread_preserves_extraction_regression_shape(manager: cyberdrop_dl.manager.Manager) -> None:
+async def test_simpcity_whole_thread_preserves_extraction_regression_shape(appdata: Path, manager: cyberdrop_dl.manager.Manager) -> None:
     crawler = crawlers.SimpCityCrawler(manager, mock.MagicMock(), mock.MagicMock())
     await crawler.__async_init__()
-    posts = _simpcity_fixture_posts()
+    posts = _simpcity_fixture_posts(crawler)
 
     expected_images_by_post = {
         659664: [

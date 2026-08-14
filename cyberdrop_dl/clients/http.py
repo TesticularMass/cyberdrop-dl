@@ -13,7 +13,7 @@ import aiohttp
 from aiohttp import hdrs
 
 from cyberdrop_dl import aio, cookies, ddos_guard
-from cyberdrop_dl.clients import curl_cffi, flaresolverr, get_logger, tcp, wreq
+from cyberdrop_dl.clients import curl_cffi, flaresolverr, get_logger, playwright, tcp, wreq
 from cyberdrop_dl.clients.request import Request, RequestParams
 from cyberdrop_dl.clients.response import AbstractResponse
 from cyberdrop_dl.cookies import make_simple_cookie
@@ -94,9 +94,10 @@ class HTTPClient:
             asyncio.Semaphore(config.downloads.concurrency),
         )
 
-        self._ssl_context = None
+        self._ssl_context = tcp.create_ssl_context(config.network.ssl_context)
         self._cookies: aiohttp.CookieJar | None = None
         self._flaresolverr: flaresolverr.Client | None = None
+        self._playwright: playwright.PlaywrightClient | None = None
         self._curl_session: AsyncSession[CurlResponse] | None = None
         self._use_flaresolverr_ua: set[str] = set()
         self._wreq_session: WreqClient | None = None
@@ -144,6 +145,12 @@ class HTTPClient:
         if self._cookies is None:
             self._cookies = aiohttp.CookieJar(quote_cookie=False)
         return self._cookies
+
+    @property
+    def playwright(self) -> playwright.PlaywrightClient | None:
+        if self._playwright is None and self.config.network.playwright:
+            self._playwright = playwright.PlaywrightClient(headless=not self.config.network.playwright_visible)
+        return self._playwright
 
     @property
     def flaresolverr(self) -> flaresolverr.Client | None:
@@ -201,8 +208,9 @@ class HTTPClient:
                 self._wreq_session.close()
 
             if self._flaresolverr is not None:
-                # close before closing aiohttp session
                 await self._flaresolverr.aclose()
+            if self._playwright is not None:
+                await self._playwright.aclose()
             await self._session.close()
 
     def _create_curl_session(self) -> AsyncSession[CurlResponse]:
@@ -244,11 +252,19 @@ class HTTPClient:
         async with self.raw_request(url, method, **kwargs) as resp:
             try:
                 await check_http_status(resp)
-            except DDOSGuardError:
+            except (DDOSGuardError, DownloadError) as exc:
+                is_403 = isinstance(exc, DownloadError) and exc.status == 403
+                if not (isinstance(exc, DDOSGuardError) or is_403):
+                    raise
+                
                 await resp.aclose()
+                if self.playwright:
+                    yield await self._playwright_request(url, kwargs.get("data"))
+                    return
+                
                 flare = self.flaresolverr
                 if not flare or flare.is_down:
-                    raise
+                    raise exc
             else:
                 yield resp
                 return
@@ -401,6 +417,17 @@ class HTTPClient:
         self._use_flaresolverr_ua.add(url.host)
         return AbstractResponse.create(solution)
 
+
+    async def _playwright_request(
+        self,
+        url: AbsoluteHttpURL,
+        data: Any | None = None,
+    ) -> AbstractResponse[Any]:
+        """Make a request with Playwright."""
+        assert self.playwright
+        solution = await self.playwright.request(url, data, self.config.network.user_agent)
+        self.cookies.update_cookies(solution.cookies)
+        return AbstractResponse.create(solution)
 
 async def _check_json(response: AbstractResponse[Any]) -> None:
     if "json" not in response.content_type:

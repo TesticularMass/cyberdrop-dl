@@ -3,8 +3,10 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import sys
 import time
 from pathlib import Path
+from unittest import mock
 from typing import TYPE_CHECKING
 
 import pytest
@@ -315,12 +317,13 @@ def test_config_can_be_serialized_as_json() -> None:
 async def test_crawler_rate_limit_config_override(running_manager: Manager) -> None:
     from cyberdrop_dl.crawlers.catbox import CatboxCrawler
 
-    running_manager.config.crawlers.rate_limits.update({CatboxCrawler.DOMAIN: (2, 5)})
-    crawler = CatboxCrawler(running_manager)
+    running_manager.config.crawlers.rate_limits = {CatboxCrawler.DOMAIN: (2, 5)}
+    crawler = CatboxCrawler(running_manager, mock.MagicMock(), mock.MagicMock())
     await crawler.__async_init__()
 
-    limiter = running_manager.http_client.limiter[CatboxCrawler.DOMAIN]
-    assert limiter == (2, 5)
+    limiter = running_manager.http_client.limiter.per_domain[CatboxCrawler.DOMAIN]
+    assert limiter.max_rate == 1
+    assert limiter.time_period == 2.5
 
 
 def test_config_defaults_are_valid() -> None:
