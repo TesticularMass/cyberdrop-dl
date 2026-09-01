@@ -39,12 +39,25 @@ class PlaywrightClient:
             await self._pw_cm.__aexit__(None, None, None)
             self._pw = None
 
-    async def request(self, url: AbsoluteHttpURL, data: Any = None, user_agent: str | None = None) -> Solution:
+    async def request(self, url: AbsoluteHttpURL, data: Any = None, user_agent: str | None = None, cookies: Any = None) -> Solution:
         """Navigates to URL using Playwright and waits for Cloudflare/DDos-Guard to be bypassed."""
         await self._start()
         assert self._browser is not None
 
         context: BrowserContext = await self._browser.new_context(user_agent=user_agent)
+        
+        if cookies:
+            pw_cookies = []
+            for cookie in cookies:
+                pw_cookies.append({
+                    "name": cookie.key,
+                    "value": cookie.value,
+                    "domain": cookie["domain"] or url.host,
+                    "path": cookie["path"] or "/"
+                })
+            if pw_cookies:
+                await context.add_cookies(pw_cookies)
+
         page: Page = await context.new_page()
         try:
             logger.info("Playwright navigating to %s", url)

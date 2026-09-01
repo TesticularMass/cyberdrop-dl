@@ -94,7 +94,7 @@ class HTTPClient:
             asyncio.Semaphore(config.downloads.concurrency),
         )
 
-        self._ssl_context = tcp.create_ssl_context(config.network.ssl_context)
+        self._ssl_context = None
         self._cookies: aiohttp.CookieJar | None = None
         self._flaresolverr: flaresolverr.Client | None = None
         self._playwright: playwright.PlaywrightClient | None = None
@@ -425,7 +425,7 @@ class HTTPClient:
     ) -> AbstractResponse[Any]:
         """Make a request with Playwright."""
         assert self.playwright
-        solution = await self.playwright.request(url, data, self.config.network.user_agent)
+        solution = await self.playwright.request(url, data, self.config.network.user_agent, self.cookies)
         self.cookies.update_cookies(solution.cookies)
         return AbstractResponse.create(solution)
 
