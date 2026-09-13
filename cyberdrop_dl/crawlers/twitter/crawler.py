@@ -61,10 +61,6 @@ class TwimgCrawler(Crawler):
             return await self.direct_file(scrape_item)
         await self.photo(scrape_item)
 
-    def _prepare_headers(self, scrape_item: ScrapeItem) -> dict[str, str]:
-        headers = super()._prepare_headers(scrape_item)
-        headers["Referer"] = "https://x.com/"
-        return headers
 
     @error_handling_wrapper
     async def photo(self, scrape_item: ScrapeItem, url: AbsoluteHttpURL | None = None) -> None:
@@ -81,7 +77,7 @@ class TwimgCrawler(Crawler):
     async def handle_media_item(self, media_item: MediaItem, m3u8: m3u8.Rendition | None = None) -> None:
         if media_item.referer.path == media_item.url.path and media_item.parents:
             media_item.referer = media_item.parents[0]
-            media_item.headers["Referer"] = str(media_item.referer)
+        media_item.headers["Referer"] = "https://x.com/"
         await super().handle_media_item(media_item, m3u8)
 
 
