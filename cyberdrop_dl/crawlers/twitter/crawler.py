@@ -61,6 +61,11 @@ class TwimgCrawler(Crawler):
             return await self.direct_file(scrape_item)
         await self.photo(scrape_item)
 
+    def _prepare_headers(self, scrape_item: ScrapeItem) -> dict[str, str]:
+        headers = super()._prepare_headers(scrape_item)
+        headers["Referer"] = "https://x.com/"
+        return headers
+
     @error_handling_wrapper
     async def photo(self, scrape_item: ScrapeItem, url: AbsoluteHttpURL | None = None) -> None:
         # https://docs.x.com/x-api/enterprise-gnip-2.0/fundamentals/data-dictionary#photo-media-url-formatting
