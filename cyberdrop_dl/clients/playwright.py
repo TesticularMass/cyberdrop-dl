@@ -41,6 +41,7 @@ class PlaywrightClient:
 
     async def request(self, url: AbsoluteHttpURL, data: Any = None, user_agent: str | None = None, cookies: Any = None) -> Solution:
         """Navigates to URL using Playwright and waits for Cloudflare/DDos-Guard to be bypassed."""
+        print("PLAYWRIGHT CLIENT REQUEST CALLED", flush=True)
         await self._start()
         assert self._browser is not None
 
