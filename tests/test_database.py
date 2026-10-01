@@ -189,3 +189,30 @@ def test_create_item_from_row() -> None:
     assert info.url_path == url_path
     assert info.download_path == Path(download_path)
     assert info.download_filename == download_filename
+
+
+@pytest.mark.parametrize("version", [schema.Version(10, 0, 0), schema.CURRENT_VERSION])
+@pytest.mark.parametrize("with_password", [False, True])
+async def test_password_migration_preserves_existing_database(tmp_path, version, with_password):
+    db_file = tmp_path / "existing.db"
+    async with Database(db_file).connect() as db:
+        await db.conn.executescript(schema.V10_1_0 if with_password else schema.V9_15_0)
+        await db.conn.execute(
+            "INSERT INTO media (domain, url_path, original_filename, completed) VALUES ('test', '/file', 'file.zip', 1)"
+        )
+        if with_password:
+            await db.conn.execute("UPDATE media SET password = 'saved-password'")
+        await db.conn.commit()
+        await db.schema.create()
+        await db.schema.update(version)
+
+    expected_password = "saved-password" if with_password else None
+    for _ in range(2):
+        async with Database(db_file) as db:
+            row = await (await db.conn.execute("SELECT password, completed FROM media")).fetchone()
+            assert row["password"] == expected_password
+            assert row["completed"] == 1
+            await db.conn.execute("UPDATE media SET password = 'new-password'")
+            await db.conn.commit()
+            expected_password = "new-password"  # noqa: S105
+            assert await db.schema.get_version() == schema.CURRENT_VERSION

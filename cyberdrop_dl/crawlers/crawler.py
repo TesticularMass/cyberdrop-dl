@@ -18,7 +18,7 @@ from cyberdrop_dl import aio, env
 from cyberdrop_dl.cache import TTLCacheAdapter
 from cyberdrop_dl.clients.downloads import IGNORE_CONTENT_TYPE
 from cyberdrop_dl.clients.http import HTTPClient, HTTPConfig, HTTPContext, HTTPMixin
-from cyberdrop_dl.constants import FileExt
+from cyberdrop_dl.constants import USE_RETRY_PATH, FileExt, HttpMethod
 from cyberdrop_dl.crawlers import ALLOW_NO_EXT, SKIP_DOWNLOAD, Registry
 from cyberdrop_dl.crawlers._hls import HLSMixin
 from cyberdrop_dl.downloader.http import Downloader
@@ -26,7 +26,7 @@ from cyberdrop_dl.exceptions import MaxChildrenError, NoExtensionError, ScrapeEr
 from cyberdrop_dl.filepath import check_dangerous_filename, check_path_traversal, compose_filename, get_filename_and_ext
 from cyberdrop_dl.mediaprops import ISO639Subtitle, Resolution
 from cyberdrop_dl.models.validators import strings
-from cyberdrop_dl.url_objects import AbsoluteHttpURL, MediaItem, ScrapeItem, is_absolute_http_url
+from cyberdrop_dl.url_objects import AbsoluteHttpURL, MediaItem, MuxVideo, ScrapeItem, is_absolute_http_url
 from cyberdrop_dl.utils import css, dates, enter_context, fast_cache, is_blob_or_svg, m3u8, parse_url, unique
 from cyberdrop_dl.utils._url import matches_any_host, remove_trailing_slash
 from cyberdrop_dl.utils.dataclass import ConfigDataclass, DictDataclass, frozen
@@ -40,6 +40,7 @@ if TYPE_CHECKING:
         AsyncIterator,
         Awaitable,
         Callable,
+        Container,
         Coroutine,
         Generator,
         Iterable,
@@ -63,7 +64,7 @@ type SupportedPaths = dict[str, OneOrTuple[str]]
 type SupportedDomains = OneOrTuple[str]
 type DebridURL = Callable[[], Awaitable[AbsoluteHttpURL]] | AbsoluteHttpURL | None
 
-_ORIGIN: ContextVar[AbsoluteHttpURL] = ContextVar("ORIGIN")
+ORIGIN: ContextVar[AbsoluteHttpURL] = ContextVar("ORIGIN")
 _CHECK_DL_CAPACITY: ContextVar[bool] = ContextVar("_CHECK_DL_CAPACITY")
 _HASH_PREFIXES = "md5:", "sha1:", "sha256:", "xxh128:"
 
@@ -98,6 +99,15 @@ _DB_PATH_BUILDERS: MappingProxyType[str, URLHasher] = MappingProxyType(
         "path_frag": lambda url: f"{url.path}#{frag}" if (frag := url.fragment) else url.path,
     }
 )
+
+
+@frozen(order=False, kw_only=False)
+class ContainerChecker[T: Container, R]:
+    values: T
+    check: Callable[[R], bool]
+
+    def __contains__(self, obj: R) -> bool:
+        return self.check(obj)
 
 
 @frozen(order=True, kw_only=False)
@@ -198,6 +208,7 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
     FOLDER_DOMAIN: ClassVar[str] = ""
     PRIMARY_URL: ClassVar[AbsoluteHttpURL]
     _FORUM: ClassVar[bool] = False
+    _THUMB_HTTP_METHOD: ClassVar[HttpMethod] = "HEAD"
 
     disabled: bool = False
 
@@ -224,6 +235,10 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
     def __db_path__(url: AbsoluteHttpURL, /) -> str:
         return url.path
 
+    @classmethod
+    def check_host_match(cls, host: str) -> bool:
+        return bool(host)
+
     @final
     def __init__(self, manager: Manager, task_mng: aio.TaskManager, tui: ScrapingUI) -> None:
         self.manager: Manager = manager
@@ -231,7 +246,7 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
         self._startup_lock: asyncio.Lock = asyncio.Lock()
         self._ready: bool = False
         self._logged_in: bool = False
-        self._scraped_items: set[str] = set()
+        self.scraped_items: set[str] = set()
         self._semaphore: asyncio.Semaphore = asyncio.Semaphore(40)
         self.config: Config = manager.config
         self.client: HTTPClient = manager.http_client
@@ -240,7 +255,7 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
         self.downloader: Downloader = Downloader(
             manager,
             use_server_lock=self.__dl_config__.server_lock,
-            _slots=self.__dl_config__.slots,
+            slots=self.__dl_config__.slots,
         )
 
         self.__http_ctx__: HTTPContext = HTTPContext.build(self.DOMAIN, self.__http_config__, self.__throttle)
@@ -420,7 +435,7 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
     @final
     @property
     def origin(self) -> AbsoluteHttpURL:
-        return _ORIGIN.get()
+        return ORIGIN.get()
 
     @property
     def separate_posts(self) -> bool:
@@ -439,6 +454,16 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
     catch_errors: Final = error_handling_context
 
     @final
+    def was_scrapped_before(self, url: AbsoluteHttpURL) -> bool:
+        lookup = url.path_qs if self.__url_config__.ignore_fragment else _path_qs_frag(url)
+        if lookup in self.scraped_items:
+            logger.info("Skipping %s as it has already been scrapped", url)
+            return True
+
+        self.scraped_items.add(lookup)
+        return False
+
+    @final
     async def run(self, scrape_item: ScrapeItem, *, check_referer: bool = False) -> None:
         if self.disabled:
             return
@@ -446,12 +471,8 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
         with scrape_item.track_changes:
             scrape_item.url = url = self.transform_url(scrape_item.url)
 
-        lookup = url.path_qs if self.__url_config__.ignore_fragment else _path_qs_frag(url)
-        if lookup in self._scraped_items:
-            logger.info(f"Skipping {url} as it has already been scrapped")
+        if self.was_scrapped_before(url):
             return
-
-        self._scraped_items.add(lookup)
 
         if not self.__url_config__.allow_empty_path and url.path == "/":
             self.raise_exc(scrape_item, ScrapeError.unsupported())
@@ -489,7 +510,7 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
     def new_task_id(self, url: AbsoluteHttpURL):
         """Creates a new task_id (shows the URL in the UI and logs)"""
         self.log.info(f"Scraping {url}")
-        _ = _ORIGIN.set(url.origin())
+        _ = ORIGIN.set(url.origin())
         return self.tui.scrape.new(url)
 
     @final
@@ -526,7 +547,7 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
         *,
         custom_filename: str | None = None,
         debrid_link: DebridURL = None,
-        m3u8: m3u8.Rendition | None = None,
+        m3u8: m3u8.Rendition | MuxVideo | None = None,
         metadata: object = None,
         referer: AbsoluteHttpURL | None = None,
         frag: str | None = None,
@@ -573,7 +594,8 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
         if metadata:
             media_item.metadata = metadata
 
-        check_path_traversal(self.config.download_folder, media_item.download_folder)
+        if not USE_RETRY_PATH.get():
+            check_path_traversal(self.config.download_folder, media_item.download_folder)
         check_dangerous_filename(media_item.download_filename or media_item.filename)
         await self.handle_media_item(media_item, m3u8)
 
@@ -595,7 +617,7 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
         try:
             _, ext = self.get_filename_and_ext(thumbnail.name)
         except NoExtensionError:
-            async with self.request(thumbnail, "HEAD") as resp:
+            async with self.request(thumbnail, self._THUMB_HTTP_METHOD) as resp:
                 _, ext = self.get_filename_and_ext(thumbnail.name, mime_type=resp.content_type)
         return ext
 
@@ -606,17 +628,17 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
         }
 
     @final
-    async def _download(self, media_item: MediaItem, m3u8: m3u8.Rendition | None, *, skip: bool = False) -> None:
+    async def _download(
+        self, media_item: MediaItem, streams: m3u8.Rendition | MuxVideo | None, *, skip: bool = False
+    ) -> None:
         if self.__dl_config__.impersonate is not None:
             media_item.extra_info["impersonate"] = self.__dl_config__.impersonate
 
         try:
             if skip or SKIP_DOWNLOAD.get():
                 return
-            if m3u8:
-                await self.downloader.download_hls(media_item, m3u8)
-            else:
-                await self.downloader.run(media_item)
+
+            await self.downloader.run(media_item, streams)
 
         finally:
             await self.__write_to_jsonl(media_item)
@@ -647,14 +669,19 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
 
         return downloaded
 
-    async def handle_media_item(self, media_item: MediaItem, m3u8: m3u8.Rendition | None = None) -> None:
+    def _prepare_media_item(self, media_item: MediaItem) -> None:
+        # To override by subclasses
+        assert media_item
+
+    async def handle_media_item(self, media_item: MediaItem, streams: m3u8.Rendition | MuxVideo | None = None) -> None:
+        self._prepare_media_item(media_item)
         with (
             enter_context(IGNORE_CONTENT_TYPE, True)
             if self.__dl_config__.ignore_content_type
             else contextlib.nullcontext()
         ):
             self._task_mngr.downloads.create_task(
-                self._download(media_item, m3u8, skip=await self.__should_skip(media_item))
+                self._download(media_item, streams, skip=await self.__should_skip(media_item))
             )
 
     async def __should_skip(self, media_item: MediaItem) -> bool:
@@ -713,6 +740,19 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
     async def get_album_results(self, album_id: str) -> dict[str, bool]:
         """Checks whether an album has completed given its domain and album id."""
         return await self.database.history.query_album(self.DOMAIN, album_id)
+
+    @final
+    async def get_completed_by_album(self, album_id: str) -> ContainerChecker[set[str], AbsoluteHttpURL]:
+        completed = await self.database.history.query_completed_by_album(self.DOMAIN, album_id)
+
+        def check(url: AbsoluteHttpURL) -> bool:
+            if completed and self.__db_path__(url) in completed:
+                logger.info("Skipping %s as it has already been downloaded", url)
+                self.tui.files.stats.prev_completed += 1
+                return True
+            return False
+
+        return ContainerChecker(completed, check)
 
     @final
     def handle_external_links(self, scrape_item: ScrapeItem, *, reset: bool = True) -> None:
@@ -857,11 +897,14 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
         url: AbsoluteHttpURL,
         selector: Callable[[BeautifulSoup], yarl.URL | str | None] | str | None = None,
         *,
-        impersonate: str | bool | None = False,
+        impersonate: str | bool | None = None,
         relative_to: AbsoluteHttpURL | None = None,
         trim: bool | None = None,
     ) -> AsyncIterator[BeautifulSoup]:
         """Generator of website pages"""
+
+        if impersonate is None:
+            impersonate = self.__http_config__.impersonate
 
         relative_to = relative_to or url
         page_url = url
@@ -879,7 +922,7 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
                     return None
 
         while True:
-            soup = await self.request_soup(page_url, impersonate=impersonate or None)
+            soup = await self.request_soup(page_url, impersonate=impersonate)
             yield soup
             page_url_str = get_next_page(soup)
             if not page_url_str:
@@ -897,10 +940,36 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
 
     @final
     @contextlib.asynccontextmanager
-    async def new_task_group(self, scrape_item: ScrapeItem) -> AsyncGenerator[aio.EagerTaskGroup]:
-        async with aio.EagerTaskGroup() as tg:
-            with self.catch_errors(scrape_item):
-                yield tg
+    async def new_task_group(self) -> AsyncGenerator[aio.EagerTaskGroup]:
+        """A taskgroup that does not cancel its tasks if an exception is raised within its `async with` context
+
+        Exceptions raised within a task will still cancel all tasks
+
+        This is mostly just to catch `MaxChildrenError`"""
+
+        context_exc = None
+        task_exc = None
+
+        try:
+            async with aio.EagerTaskGroup() as tg:
+                try:
+                    yield tg
+                except Exception as e:  # noqa: BLE001
+                    context_exc = e
+        except ExceptionGroup as eg:
+            if context_exc is None:
+                raise
+            task_exc = eg
+
+        try:
+            if task_exc is not None and context_exc is not None:
+                raise ExceptionGroup(task_exc.message, (*task_exc.exceptions, context_exc)) from None
+            if task_exc is not None:
+                raise task_exc from None
+            if context_exc is not None:
+                raise context_exc from None
+        finally:
+            context_exc = task_exc = None
 
     @final
     @classmethod
@@ -1089,7 +1158,7 @@ class API(HTTPMixin, ABC):
     @final
     @property
     def origin(self) -> AbsoluteHttpURL:
-        return _ORIGIN.get()
+        return ORIGIN.get()
 
 
 def _make_scrape_mapper_keys(cls: type[Crawler] | Crawler) -> tuple[str, ...]:
@@ -1158,13 +1227,15 @@ def _sort_supported_paths(supported_paths: SupportedPaths) -> dict[str, tuple[st
 
 def auto_task_id[CrawlerT: Crawler, **P, R](
     func: Callable[Concatenate[CrawlerT, ScrapeItem, P], Coroutine[None, None, R]],
-) -> Callable[Concatenate[CrawlerT, ScrapeItem, P], Coroutine[None, None, R]]:
+) -> Callable[Concatenate[CrawlerT, ScrapeItem, P], Coroutine[None, None, None]]:
     """Autocreate a new `task_id` from the scrape_item of the method"""
 
     @functools.wraps(func)
-    async def wrapper(self: CrawlerT, scrape_item: ScrapeItem, *args: P.args, **kwargs: P.kwargs) -> R:
+    async def wrapper(self: CrawlerT, scrape_item: ScrapeItem, *args: P.args, **kwargs: P.kwargs) -> None:
+        if self.was_scrapped_before(scrape_item.url):
+            return
         with self.new_task_id(scrape_item.url):
-            return await func(self, scrape_item, *args, **kwargs)
+            await func(self, scrape_item, *args, **kwargs)
 
     return wrapper
 
@@ -1200,6 +1271,8 @@ def _should_skip_by_config(media_item: MediaItem, config: Config) -> bool:
 
 
 def _prepare_download_path(item: ScrapeItem, domain: str) -> Path:
+    if item.retry_info and USE_RETRY_PATH.get():
+        return item.retry_info.download_path
     path = item.download_folder / item.path
     if item.is_loose_file:
         path = path / f"Loose Files ({domain})"

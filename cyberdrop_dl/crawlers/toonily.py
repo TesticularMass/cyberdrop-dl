@@ -4,7 +4,7 @@ from typing import ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
 from cyberdrop_dl.url_objects import AbsoluteHttpURL, ScrapeItem, ScrapeItemType
-from cyberdrop_dl.utils import css
+from cyberdrop_dl.utils import css, json_ld
 from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 
@@ -27,9 +27,9 @@ class ToonilyCrawler(Crawler):
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         match scrape_item.url.parts[1:]:
             case ["serie", _]:
-                return await self.series(scrape_item)
+                await self.series(scrape_item)
             case ["serie", _, chapter] if chapter.startswith("chapter-"):
-                return await self.chapter(scrape_item)
+                await self.chapter(scrape_item)
             case _:
                 raise ValueError
 
@@ -55,8 +55,7 @@ class ToonilyCrawler(Crawler):
             scrape_item.append_folders(series_title)
 
         scrape_item.setup_as_album(chapter_title)
-        iso_date = css.json_ld(soup)["@graph"][0]["datePublished"]
-        scrape_item.uploaded_at = self.parse_iso_date(iso_date)
+        scrape_item.uploaded_at = json_ld.date_published(soup)
 
         for link in self.iter_urls(soup, Selector.IMAGE, "src"):
             self.create_eager_task(self.direct_file(scrape_item, link))

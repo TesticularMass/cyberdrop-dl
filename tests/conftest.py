@@ -12,6 +12,11 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Generator
     from pathlib import Path
 
+if TYPE_CHECKING:
+
+    class PyTestConfig(pytest.Config):  # pyright: ignore[reportGeneralTypeIssues]
+        test_crawlers_domains: set[str]  # pyright: ignore[reportUninitializedInstanceVariable]
+
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
@@ -22,19 +27,19 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
 
 
-def pytest_configure(config: pytest.Config) -> None:
+def pytest_configure(config: PyTestConfig) -> None:
     config.test_crawlers_domains = {
-        domain for item in config.getoption("--test-crawlers").split(",") if (domain := item.strip())
+        domain for item in (config.getoption("--test-crawlers") or "").split(",") if (domain := item.strip())
     }
 
 
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+def pytest_collection_modifyitems(config: PyTestConfig, items: list[pytest.Item]) -> None:
     """When running with --test-crawlers, disable all other tests"""
     if not config.test_crawlers_domains:
         return
 
-    selected_tests = []
-    deselected_tests = []
+    selected_tests: list[pytest.Item] = []
+    deselected_tests: list[pytest.Item] = []
     for item in items:
         markers = {marker.name for marker in item.iter_markers()}
 
@@ -51,8 +56,10 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 @pytest.fixture(autouse=True)
 def tmp_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Path]:
     import cyberdrop_dl.database._db
+
     async def _mock_pre_allocate(*args, **kwargs):
         pass
+
     monkeypatch.setattr(cyberdrop_dl.database._db, "pre_allocate_250mb", _mock_pre_allocate)
     with monkeypatch.context() as m:
         m.chdir(tmp_path)

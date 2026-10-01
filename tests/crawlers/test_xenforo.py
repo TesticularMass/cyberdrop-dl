@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest import mock
 
 import pytest
-from bs4 import BeautifulSoup
 
 from cyberdrop_dl.config.appdata import AppData, AppDirs
 from cyberdrop_dl.crawlers import _forum
@@ -14,6 +14,10 @@ from cyberdrop_dl.crawlers.xenforo.celebforum import CelebForumCrawler
 from cyberdrop_dl.exceptions import ScrapeError
 from cyberdrop_dl.manager import Manager
 from cyberdrop_dl.url_objects import AbsoluteHttpURL, ScrapeItem
+from cyberdrop_dl.utils import css
+
+if TYPE_CHECKING:
+    from bs4 import BeautifulSoup
 
 
 def _item(url: str) -> ScrapeItem:
@@ -44,7 +48,7 @@ def _post(
 ) -> _forum.ForumPost:
     crawler = crawler or TEST_CRAWLER
     html = _html(POST_TEMPLATE.format(id=id, message_body=message_body, message_attachments=message_attachments))
-    article = BeautifulSoup(html, "html.parser").select("article")[0]
+    article = css.select(css.soup(html), "article")
     return _forum.ForumPost.new(article, crawler.SELECTORS.posts)
 
 
@@ -186,7 +190,7 @@ def test_normalize_thread_request_url_removes_alias_segment() -> None:
 
 
 @pytest.mark.asyncio
-async def test_fetch_thread_accepts_alias_segment_before_thread_name(manager: cyberdrop_dl.manager.Manager) -> None:
+async def test_fetch_thread_accepts_alias_segment_before_thread_name(manager: Manager) -> None:
     scrape_item = _item("https://simpcity.cr/threads/katelyn-s5410/ampisi-mrscampisi-thecampisis-the-campisis.125410/")
     expected_request_url = AbsoluteHttpURL(
         "https://simpcity.cr/threads/ampisi-mrscampisi-thecampisis-the-campisis.125410/"
@@ -249,58 +253,6 @@ async def test_fetch_thread_accepts_alias_segment_before_thread_name(manager: cy
 )
 def test_clean_link_url(link: str, out: str) -> None:
     assert _forum.clean_link_str(link) == out
-
-
-def test_parse_login_form_success() -> None:
-    html = _html("""
-    <form id="loginForm">
-        <input type="text" name="username" value="testuser">
-        <input type="password" name="password" value="testpass">
-        <input type="hidden" name="csrf_token" value="some_token_123">
-        <input type="submit" value="Login">
-        <input type="text" id="noName" value="shouldBeIgnored">
-        <input type="text" name="noValue">
-    </form>
-    <form id="anotherForm">
-        <input type="text" name="anotherField" value="anotherValue">
-    </form>
-    """)
-    expected_data = {
-        "username": "testuser",
-        "password": "testpass",
-        "csrf_token": "some_token_123",
-    }
-    parsed_data = xenforo.parse_login_form(html)
-    assert parsed_data == expected_data
-
-
-def test_parse_login_form_no_form_should_fail() -> None:
-    with pytest.raises(ScrapeError):
-        xenforo.parse_login_form("")
-
-
-def test_parse_login_form_inputs_without_name_or_value_should_be_ignored() -> None:
-    html = _html("""
-    <form>
-        <input type="text" value="somevalue">
-        <input type="text" name="someName">
-        <input type="text" name="validField" value="validValue">
-    </form>
-    """)
-    expected_data = {"validField": "validValue"}
-    parsed_data = xenforo.parse_login_form(html)
-    assert parsed_data == expected_data
-
-
-def test_parse_login_form_no_input_form_should_fail() -> None:
-    html = _html("""
-    <form>
-        <div>Some content</div>
-        <p>More content</p>
-    </form>
-    """)
-    with pytest.raises(ScrapeError):
-        xenforo.parse_login_form(html)
 
 
 @pytest.mark.parametrize(
@@ -632,7 +584,7 @@ def test_get_post_title_thread_w_prefixes() -> None:
                  <span class="label-append">&nbsp;</span>GunplaMeli</h1>
     </div>
     """)
-    soup = BeautifulSoup(html, "html.parser")
+    soup = css.soup(html)
     title = _forum.get_post_title(soup, xenforo.XenforoCrawler.SELECTORS)
     assert title == "GunplaMeli"
 
@@ -643,14 +595,14 @@ def test_get_post_title_thread_w_no_prefixes() -> None:
         <h1 class="p-title-value">Staged/Fake Japanese Candid Videos from Gcolle/Pcolle or FC2</h1>
     </div>
     """
-    soup = BeautifulSoup(html, "html.parser")
+    soup = css.soup(html)
     title = _forum.get_post_title(soup, xenforo.XenforoCrawler.SELECTORS)
     assert title == "Staged/Fake Japanese Candid Videos from Gcolle/Pcolle or FC2"
 
 
 def test_get_post_title_no_title_found() -> None:
     html = _html("")
-    soup = BeautifulSoup(html, "html.parser")
+    soup = css.soup(html)
     with pytest.raises(ScrapeError) as exc_info:
         _forum.get_post_title(soup, xenforo.XenforoCrawler.SELECTORS)
 
@@ -660,7 +612,7 @@ def test_get_post_title_no_title_found() -> None:
 
 def test_get_post_title_empty_title_block() -> None:
     html = _html("""<h1 class="p-title-value"></h1>""")
-    soup = BeautifulSoup(html, "html.parser")
+    soup = css.soup(html)
     with pytest.raises(ScrapeError):
         _forum.get_post_title(soup, xenforo.XenforoCrawler.SELECTORS)
 
@@ -673,7 +625,7 @@ def test_get_post_title_non_english_chars() -> None:
         </h1>
     </div>
     """)
-    soup = BeautifulSoup(html, "html.parser")
+    soup = css.soup(html)
     title = _forum.get_post_title(soup, xenforo.XenforoCrawler.SELECTORS)
     assert title == "㊙️Hcupりおの極秘えち任務🙊💗 (りお❤️❤️❤️) / りお@Rio / rio_hcup_fantia"
 
@@ -688,7 +640,7 @@ def test_get_post_title_should_strip_new_lines() -> None:
         </h1>
     </div>
     """)
-    soup = BeautifulSoup(html, "html.parser")
+    soup = css.soup(html)
     title = _forum.get_post_title(soup, xenforo.XenforoCrawler.SELECTORS)
     assert title == "㊙️Hcupりおの極秘えち任務🙊💗 (りお❤️❤️❤️) / りお@Rio / rio_hcup_fantia"
 
@@ -944,7 +896,7 @@ POST_TEMPLATE = """
 
 
 def _load_xenforo_fixture(path: Path) -> BeautifulSoup:
-    return BeautifulSoup(path.read_text("utf-8"), "html.parser")
+    return css.soup(path.read_text("utf-8"))
 
 
 SIMPCITY_WHOLE_THREAD_FIXTURE = (
@@ -971,7 +923,7 @@ async def _normalize_extracted_links(crawler: xenforo.XenforoCrawler, post: _for
 
 
 @pytest.mark.asyncio
-async def test_simpcity_whole_thread_preserves_extraction_regression_shape(appdata: Path, manager: cyberdrop_dl.manager.Manager) -> None:
+async def test_simpcity_whole_thread_preserves_extraction_regression_shape(manager: Manager) -> None:
     crawler = crawlers.SimpCityCrawler(manager, mock.MagicMock(), mock.MagicMock())
     await crawler.__async_init__()
     posts = _simpcity_fixture_posts(crawler)

@@ -32,7 +32,7 @@ class MixDropCrawler(Crawler):
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         match scrape_item.url.parts[1:]:
             case ["f" | "e", file_id]:
-                return await self.file(scrape_item, file_id)
+                await self.file(scrape_item, file_id)
             case _:
                 raise ValueError
 
@@ -59,7 +59,7 @@ class MixDropCrawler(Crawler):
         video_url = self.PRIMARY_URL / "f" / file_id
         embed_url = self.PRIMARY_URL / "e" / file_id
 
-        soup, embed_html = await aio.safe_gather(self.request_soup(video_url), self.request_text(embed_url))
+        soup, embed_html = await aio.gather(self.request_soup(video_url), self.request_text(embed_url), fail_fast=False)
         title = css.select_text(soup, "div.tbl-c.title b")
         md_props = dict(_extract_properties(embed_html))
         return title, self.parse_url(md_props["wurl"])

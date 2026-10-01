@@ -12,10 +12,10 @@ from typing import TYPE_CHECKING, Any, ClassVar, Protocol, Self, Unpack, final, 
 import aiohttp
 from aiohttp import hdrs
 
-from cyberdrop_dl import aio, cookies, ddos_guard
+from cyberdrop_dl import aio, cookies, ddos_guard, env
 from cyberdrop_dl.clients import curl_cffi, flaresolverr, get_logger, playwright, tcp, wreq
 from cyberdrop_dl.clients.request import Request, RequestParams
-from cyberdrop_dl.clients.response import AbstractResponse
+from cyberdrop_dl.clients.response import AbstractResponse, FlareSolverrResponse
 from cyberdrop_dl.cookies import make_simple_cookie
 from cyberdrop_dl.exceptions import DDOSGuardError, DownloadError, ScrapeError
 from cyberdrop_dl.signature import simple_repr
@@ -47,18 +47,20 @@ logger = get_logger(__name__)
 
 
 class _LazyResponseLog:
-    def __init__(self, response: AbstractResponse[Any]) -> None:
+    def __init__(self, response: AbstractResponse[Any], *, content_only: bool = False) -> None:
         self.resp: AbstractResponse[Any] = response
+        self.content_only: bool = content_only
 
     def __json__(self) -> dict[str, Any]:
         resp = self.resp.__json__()
-        del resp["created_at"]
         if type(resp["content"]) is str:
-            resp["content"] = truncated_preview(resp["content"])
-        return resp
+            resp["content"] = truncated_preview(resp["content"], env.MAX_LOG_MSG_LENGTH if self.content_only else 100)
 
-    def content(self) -> dict[str, Any]:
-        return {"content": self.__json__()["content"]}
+        if self.content_only:
+            return {"content": resp["content"]}
+
+        del resp["created_at"]
+        return resp
 
     def __str__(self) -> str:
         return str(self.__json__())
@@ -100,6 +102,7 @@ class HTTPClient:
         self._playwright: playwright.PlaywrightClient | None = None
         self._curl_session: AsyncSession[CurlResponse] | None = None
         self._use_flaresolverr_ua: set[str] = set()
+        self._flaresolverr_ua: str = ""
         self._wreq_session: WreqClient | None = None
         self._session: aiohttp.ClientSession
         self._download_session: aiohttp.ClientSession
@@ -256,32 +259,32 @@ class HTTPClient:
                 is_403 = isinstance(exc, DownloadError) and exc.status == 403
                 if not (isinstance(exc, DDOSGuardError) or is_403):
                     raise
-                
                 await resp.aclose()
-                if self.playwright:
-                    yield await self._playwright_request(url, kwargs.get("data"))
-                    return
-                
-                flare = self.flaresolverr
-                if not flare or flare.is_down:
-                    raise exc
+                if not self.playwright:
+                    flare = self.flaresolverr
+                    if not flare or flare.is_down:
+                        raise
             else:
                 yield resp
                 return
 
         # TODO: implement per host weak locks to only make one flaresolverr request
         # Use the cookies from that request for all future ones
-        resp = await self._flaresolverr_request(url, method=method, data=kwargs.get("data"))
+        if self.playwright:
+            resp = await self._playwright_request(url)
+        else:
+            resp = await self._flaresolverr_request(url, method=method, data=kwargs.get("data"))
         custom_headers = tuple(
             sorted(map(str, set(kwargs.get("headers", ())) - {hdrs.USER_AGENT, hdrs.REFERER, hdrs.ORIGIN}))
         )
         has_json = kwargs.get("json") is not None
-        if not (has_json or custom_headers):
+        replay_method = self.playwright is not None and (method != "GET" or bool(kwargs.get("data")))
+        if not (has_json or custom_headers or replay_method):
             yield resp
             return
 
         logger.info(
-            "Making %s request to %s again with Flaresolverr cookies. Reasons: %s",
+            "Making %s request to %s again with browser cookies. Reasons: %s",
             method,
             url,
             f"{has_json = }, {custom_headers = }",
@@ -305,7 +308,7 @@ class HTTPClient:
             # We already made a (successful) flaresolverr request to this host
             # Use the same UA as flaresolverr to make sure cookies are valid
             request.impersonate = False
-            request.headers[hdrs.USER_AGENT] = flaresolverr.USER_AGENT.get()
+            request.headers[hdrs.USER_AGENT] = self._flaresolverr_ua
 
         elif request.impersonate:
             request.headers.pop(hdrs.USER_AGENT, None)
@@ -332,7 +335,7 @@ class HTTPClient:
                         "Content from %s request [id=%s]\n%s",
                         request.method,
                         request.id,
-                        _LazyResponseLog(resp).content(),
+                        _LazyResponseLog(resp, content_only=True),
                     )
                 if self.request_done_callback:
                     self.request_done_callback(request.url, resp, exc)
@@ -389,7 +392,7 @@ class HTTPClient:
         self,
         url: AbsoluteHttpURL,
         **params: Unpack[flaresolverr.RequestParams],
-    ) -> AbstractResponse[Any]:
+    ) -> FlareSolverrResponse:
         flare = self.flaresolverr
         if not flare:
             raise ScrapeError(
@@ -403,7 +406,7 @@ class HTTPClient:
         url: AbsoluteHttpURL,
         /,
         **params: Unpack[flaresolverr.RequestParams],
-    ) -> AbstractResponse[Any]:
+    ) -> FlareSolverrResponse:
         """Make a request with FlareSolverr.
 
         Returns an AbstractResponse confirmed to not be a DDOS Guard page, even if flaresolverr fails to detect/solve a challenge"""
@@ -413,21 +416,25 @@ class HTTPClient:
         assert not flare.is_down
         solution = await flare.request(url, **params)
         self.cookies.update_cookies(solution.cookies)
-        flaresolverr.verify_solution(self.config.network.user_agent, solution)
+        await flaresolverr.verify_solution(self.config.network.user_agent, solution)
         self._use_flaresolverr_ua.add(url.host)
-        return AbstractResponse.create(solution)
-
+        self._flaresolverr_ua = flaresolverr.USER_AGENT.get()
+        return FlareSolverrResponse.create(solution)
 
     async def _playwright_request(
         self,
         url: AbsoluteHttpURL,
-        data: Any | None = None,
     ) -> AbstractResponse[Any]:
-        """Make a request with Playwright."""
+        """Make a request with Playwright and validate the resulting page."""
         assert self.playwright
-        solution = await self.playwright.request(url, data, self.config.network.user_agent, self.cookies)
-        self.cookies.update_cookies(solution.cookies)
-        return AbstractResponse.create(solution)
+        solution = await self.playwright.request(url, user_agent=self.config.network.user_agent, cookies=self.cookies)
+        response = AbstractResponse.create(solution)
+        await check_http_status(response)
+        self.cookies.update_cookies(solution.cookies, response_url=solution.url)
+        self._use_flaresolverr_ua.update((url.host, solution.url.host))
+        self._flaresolverr_ua = solution.user_agent
+        return response
+
 
 async def _check_json(response: AbstractResponse[Any]) -> None:
     if "json" not in response.content_type:
@@ -487,7 +494,7 @@ class HTTPMixin(HTTPController, Protocol):
         self,
         url: AbsoluteHttpURL,
         **kwargs: Unpack[flaresolverr.RequestParams],
-    ) -> AbstractResponse[Any]:
+    ) -> FlareSolverrResponse:
         async with self.rate_limit_ctx():
             return await self.client.flaresolverr_request(url, **kwargs)
 

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, ClassVar, override
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedDomains, SupportedPaths
 from cyberdrop_dl.url_objects import AbsoluteHttpURL
-from cyberdrop_dl.utils import css
+from cyberdrop_dl.utils import css, json_ld
 from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
@@ -31,11 +31,11 @@ class HotPicCrawler(Crawler):
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         match scrape_item.url.parts[1:]:
             case ["album", album_id]:
-                return await self.album(scrape_item, album_id)
+                await self.album(scrape_item, album_id)
             case ["i", _]:
-                return await self.file(scrape_item)
+                await self.file(scrape_item)
             case ["uploads" | "reddit", _, *_]:
-                return await self.direct_file(scrape_item)
+                await self.direct_file(scrape_item)
             case _:
                 raise ValueError
 
@@ -61,7 +61,7 @@ class HotPicCrawler(Crawler):
             return
 
         soup = await self.request_soup(scrape_item.url)
-        scrape_item.uploaded_at = self.parse_iso_date(css.json_ld(soup)["datePublished"])
+        scrape_item.uploaded_at = json_ld.date_published(soup)
         src = css.select(soup, Selector.MEDIA, "src")
         await self.direct_file(scrape_item, _thumb_to_src(self.parse_url(src)))
 

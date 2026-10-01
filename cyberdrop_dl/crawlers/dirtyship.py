@@ -7,7 +7,7 @@ from cyberdrop_dl import aio
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
 from cyberdrop_dl.mediaprops import Resolution
 from cyberdrop_dl.url_objects import AbsoluteHttpURL
-from cyberdrop_dl.utils import css, parse_url
+from cyberdrop_dl.utils import css, json_ld, parse_url
 from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
@@ -38,9 +38,9 @@ class DirtyShipCrawler(Crawler):
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         match scrape_item.url.parts[1:]:
             case ["tag" | "category" as type_, _]:
-                return await self.playlist(scrape_item, type_)
+                await self.playlist(scrape_item, type_)
             case [_]:
-                return await self.video(scrape_item)
+                await self.video(scrape_item)
             case _:
                 raise ValueError
 
@@ -58,10 +58,8 @@ class DirtyShipCrawler(Crawler):
     @error_handling_wrapper
     async def video(self, scrape_item: ScrapeItem) -> None:
         soup = await self.request_soup(scrape_item.url)
-        props = css.json_ld(soup)["@graph"]
-        article: dict[str, str] = next(prop for prop in props if prop["@type"] == "Article")
+        article = json_ld.find_elem(soup, "Article")
         title = css.unescape(article["headline"])
-        _preview = next(prop["contentUrl"] for prop in props if prop["@type"] == "ImageObject")
         scrape_item.uploaded_at = self.parse_iso_date(article["datePublished"])
 
         try:
@@ -71,7 +69,14 @@ class DirtyShipCrawler(Crawler):
 
         filename, ext = self.get_filename_and_ext(src.name)
         custom_filename = self.create_custom_filename(title, ext, resolution=resolution)
-        await self.handle_file(src, scrape_item, filename, ext, custom_filename=custom_filename)
+        await self.handle_file(
+            src,
+            scrape_item,
+            filename,
+            ext,
+            custom_filename=custom_filename,
+            thumbnail=json_ld.find_elem(soup, "ImageObject")["contentUrl"],
+        )
 
 
 def _parse_html5_formats(soup: BeautifulSoup) -> Generator[tuple[Resolution, AbsoluteHttpURL]]:

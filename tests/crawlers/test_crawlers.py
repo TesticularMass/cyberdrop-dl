@@ -51,6 +51,11 @@ async def test_crawler(running_manager: Manager, test_case: test_cases.CrawlerTe
     if test_case.skip:
         pytest.skip(reason=test_case.skip if isinstance(test_case.skip, str) else "")
 
+    running_manager.config.network.flaresolverr = AbsoluteHttpURL("http://localhost:8191")
+
+    if test_case.args:
+        running_manager._config = running_manager.config | running_manager.config.parse_args(test_case.args)
+
     with _crawler_mock() as func:
         async with ScrapeMapper(running_manager)() as scrape_mapper:
             await running_manager.http_client.load_cookie_files([REPO_ROOT / "cookies.txt"])
@@ -60,7 +65,7 @@ async def test_crawler(running_manager: Manager, test_case: test_cases.CrawlerTe
                 None,
             )
             assert cls, f"{test_case.domain} is not a valid crawler domain. Test case is invalid"
-            crawler = scrape_mapper._factory[cls]
+            crawler = scrape_mapper._factory(cls)
             await crawler.__async_init__()
             item = ScrapeItem.from_url(crawler.parse_url(test_case.url))
             item.download_folder = running_manager.config.download_folder

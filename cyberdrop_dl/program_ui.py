@@ -8,6 +8,7 @@ import aiohttp
 from rich.markdown import Markdown
 
 from cyberdrop_dl import __version__, aio, stats
+from cyberdrop_dl.constants import USE_RETRY_PATH
 from cyberdrop_dl.hasher import Hasher, hash_directory
 from cyberdrop_dl.progress import hyperlink
 from cyberdrop_dl.prompts import (
@@ -15,6 +16,7 @@ from cyberdrop_dl.prompts import (
     ask_confirmation,
     ask_dir,
     ask_should_create_config,
+    ask_should_use_retry_path,
     console,
     enter_to_continue,
 )
@@ -26,6 +28,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
+    from cyberdrop_dl.database import Database
+    from cyberdrop_dl.database.hash import PruneStats
     from cyberdrop_dl.manager import Manager
 
 _INPUT_FILE: ContextVar[Path] = ContextVar("_INPUT_FILE")
@@ -45,8 +49,9 @@ def run(manager: Manager, input_file: Path) -> RetrySource | Path:
     _INPUT_FILE.set(input_file)
     choices: dict[str, Callable[[Manager], RetrySource | Path | None]] = {
         "Download": lambda _: input_file,
-        "Retry failed downloads": lambda _: RetrySource.FAILED,
+        "Retry failed downloads": _retry_failed,
         "Create file hashes": _scan_and_create_hashes,
+        "Delete hashes of missing files": _prune_hashes,
         "Sort files in download folder": _sort_files,
         "Edit URLs.txt": lambda _: _edit_urls(),
         "Edit config": _edit_config,
@@ -62,12 +67,31 @@ def run(manager: Manager, input_file: Path) -> RetrySource | Path:
             return source
 
 
+def _retry_failed(_: object) -> RetrySource:
+    USE_RETRY_PATH.set(ask_should_use_retry_path())
+    return RetrySource.FAILED
+
+
 def _scan_and_create_hashes(manager: Manager) -> None:
     path = ask_dir("Select the directory to scan", default=manager.config.download_folder)
     with Hasher.create(manager.config, manager.database, path) as hasher:
         hash_stats = aio.run(hash_directory(hasher))
         stats.print(hash_stats)
         enter_to_continue()
+
+
+def _prune_hashes(manager: Manager) -> None:
+    console.warning(
+        "You are about to delete the hashes of every file in the database that no longer exists on disk",
+    )
+    if ask_confirmation(explicit=True):
+        stats.print(aio.run(_prune(manager.database)))
+        enter_to_continue()
+
+
+async def _prune(database: Database) -> PruneStats:
+    async with database:
+        return await database.hash.prune_missing_files()
 
 
 def _sort_files(manager: Manager) -> None:

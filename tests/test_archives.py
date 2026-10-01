@@ -134,3 +134,13 @@ def test_plain_7z_extracts(tmp_path: Path) -> None:
 
     archives.extract(archive)
     assert (tmp_path / "secret.txt").read_bytes() == _CONTENT
+
+
+def test_7z_encrypted_headers_wrong_then_right_password(tmp_path):
+    archive = tmp_path / "headers.7z"
+    with py7zr.SevenZipFile(archive, "w", password=_PASSWORD, header_encryption=True) as seven_zip_file:
+        seven_zip_file.writestr(_CONTENT, "secret.txt")
+    with pytest.raises(archives.WrongPasswordError):
+        archives.extract(archive, password="wrong")  # noqa: S106
+    archives.extract(archive, password=_PASSWORD)
+    assert (tmp_path / "secret.txt").read_bytes() == _CONTENT

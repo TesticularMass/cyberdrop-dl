@@ -154,10 +154,12 @@ def test_parse_http(url: str, origin: str | None, expected: str, *, trim: bool) 
 
 class TestTextEditor:
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows only test")
-    def test_win_default(self, tmp_cwd: Path) -> None:
+    def test_win_default(self, tmp_cwd: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("EDITOR", raising=False)
         cmd = text_editor._find_win_editor()
         assert cmd == text_editor._editor_cmd()
-        assert isinstance(cmd, tuple) and cmd[0].lower().endswith(".exe")
+        assert isinstance(cmd, tuple)
+        assert cmd[0].lower().endswith(".exe")
         np = tmp_cwd / "notepad++.exe"
         np.write_text("test")
         cmd = text_editor._find_win_editor()
@@ -170,14 +172,16 @@ class TestTextEditor:
         )
 
     @pytest.mark.skipif(sys.platform != "darwin", reason="MAC OS test only")
-    def test_mac_os_default(self) -> None:
+    def test_mac_os_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("EDITOR", raising=False)
         cmd = text_editor._editor_cmd()
         assert cmd
         assert cmd == ("open", "-t", "-n", "-W")
         assert type(cmd[0]) is text_editor.OSDefaultCMD
 
     @pytest.mark.skipif(sys.platform in ("darwin", "win32"), reason="Linux test only")
-    def test_unix_default(self) -> None:
+    def test_unix_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("EDITOR", raising=False)
         cmd = text_editor._find_unix_editor()
         assert cmd
         assert cmd == text_editor._editor_cmd()

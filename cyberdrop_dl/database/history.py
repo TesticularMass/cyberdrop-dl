@@ -27,6 +27,7 @@ class HistoryTable(Table, name="media"):
         async with self.db.writer() as db_conn:
             await db_conn.execute(CREATE_HISTORY)
             await db_conn.executescript(CREATE_MEDIA_INDEX)
+            await _ensure_password_column(db_conn)
             await db_conn.commit()
 
     async def apply_updates(self) -> None:
@@ -63,6 +64,16 @@ class HistoryTable(Table, name="media"):
             rows = await db_conn.execute_fetchall(query, (domain, album_id))
 
         return {row["url_path"]: bool(row["completed"]) for row in rows}
+
+    async def query_completed_by_album(self, domain: str, album_id: str) -> set[str]:
+        if self.ignore_history:
+            return set()
+
+        query = "SELECT url_path FROM media WHERE domain = ? and album_id = ? and completed = 1"
+        async with self.db.reader() as db_conn:
+            rows = await db_conn.execute_fetchall(query, (domain, album_id))
+
+        return {row["url_path"] for row in rows}
 
     async def set_album_id(self, domain: str, media_item: MediaItem) -> None:
         query = "UPDATE media SET album_id = ? WHERE domain = ? and url_path = ?"
@@ -281,11 +292,11 @@ def _generic_fix_referer(crawler: type[Crawler]) -> Callable[[str], str]:
     fix_db_referer.__name__ = f"fix_{crawler.DOMAIN}_referer"
     return fix_db_referer
 
-async def _ensure_password_column(db_conn: aiosqlite.Connection) -> None:
-    with _timed_update("password column"):
-        try:
-            await db_conn.execute("ALTER TABLE media ADD COLUMN password TEXT;")
-        except aiosqlite.OperationalError:
-            pass
-        await db_conn.commit()
 
+async def _ensure_password_column(db_conn: aiosqlite.Connection) -> None:
+    async with db_conn.execute("PRAGMA table_info(media)") as cursor:
+        columns = {row["name"] for row in await cursor.fetchall()}
+    if "password" not in columns:
+        with _timed_update("password column"):
+            await db_conn.execute("ALTER TABLE media ADD COLUMN password TEXT;")
+            await db_conn.commit()

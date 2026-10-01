@@ -10,7 +10,7 @@ from cyberdrop_dl import aio
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedDomains, SupportedPaths
 from cyberdrop_dl.exceptions import ScrapeError
 from cyberdrop_dl.url_objects import AbsoluteHttpURL
-from cyberdrop_dl.utils import css, extr_text
+from cyberdrop_dl.utils import css, extr_text, json_ld
 from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
@@ -90,13 +90,13 @@ class XVideosCrawler(Crawler):
             raise ValueError
         match scrape_item.url.parts[1:]:
             case [part, _] if part.startswith("video"):
-                return await self.video(scrape_item)
+                await self.video(scrape_item)
             case [_ as part, _] if part in _EXTENDED_ACCOUNTS:
-                return await self.account(scrape_item)
+                await self.account(scrape_item)
             case [_ as part, _, "photos" | "post", gallery_id, *_] if part in _EXTENDED_ACCOUNTS:
-                return await self.gallery(scrape_item, gallery_id)
+                await self.gallery(scrape_item, gallery_id)
             case [_ as part] if part not in _EXTENDED_ACCOUNTS:  # channel
-                return await self.account(scrape_item)
+                await self.account(scrape_item)
             case _:
                 raise ValueError
 
@@ -117,7 +117,7 @@ class XVideosCrawler(Crawler):
             raise ScrapeError(404, css.text(error))
 
         title = css.page_title(soup, self.DOMAIN)
-        scrape_item.uploaded_at = self.parse_iso_date(css.json_ld(soup)["uploadDate"])
+        scrape_item.uploaded_at = json_ld.upload_date(soup)
         script = css.select_text(soup, Selectors.HLS_VIDEO_JS)
         m3u8_url = self.parse_url(extr_text(script, "setVideoHLS('", "')"))
         m3u8, info = await self.request_m3u8_playlist(m3u8_url)

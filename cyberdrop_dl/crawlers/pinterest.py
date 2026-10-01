@@ -46,11 +46,11 @@ class PinterestCrawler(Crawler):
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         match scrape_item.url.parts[1:]:
             case ["pin", pin_id]:
-                return await self.pin(scrape_item, pin_id)
+                await self.pin(scrape_item, pin_id)
             case [user, slug]:
-                return await self.board(scrape_item, user, slug)
+                await self.board(scrape_item, user, slug)
             case [user]:
-                return await self.user(scrape_item, user)
+                await self.user(scrape_item, user)
             case _:
                 raise ValueError
 
@@ -150,6 +150,7 @@ class PinterestAPI(API):
 
     async def get_resource(self, resource: str, options: dict[str, Any]) -> dict[str, Any]:
         url = self.PRIMARY_URL / f"resource/{resource}Resource/get/"
+        self.client.cookies.update_cookies({"csrftoken": self.csrf_token}, self.PRIMARY_URL)
         return await self.request_json(
             url,
             "POST",
@@ -158,7 +159,6 @@ class PinterestAPI(API):
                 "source_url": "",
             },
             headers={"X-CSRFToken": self.csrf_token},
-            cookies={"csrftoken": self.csrf_token},
         )
 
     async def pager(self, resource: str, options: dict[str, Any]) -> AsyncGenerator[list[dict[str, Any]]]:

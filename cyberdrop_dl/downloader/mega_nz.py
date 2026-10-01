@@ -1,26 +1,22 @@
 from __future__ import annotations
 
-import dataclasses
 from typing import TYPE_CHECKING, Any, ClassVar, final, override
 
 from mega.chunker import MegaChunker, get_chunks
 
 from cyberdrop_dl import aio, storage
-from cyberdrop_dl.clients.downloads import DownloadClient, make_speed_checker
+from cyberdrop_dl.clients.downloads import DownloadClient, _get_content_length, make_speed_checker
 from cyberdrop_dl.downloader.http import Downloader
 
 if TYPE_CHECKING:
     from cyberdrop_dl.clients.response import AbstractResponse
-    from cyberdrop_dl.manager import Manager
     from cyberdrop_dl.progress import ProgressHook
     from cyberdrop_dl.url_objects import MediaItem
 
 
 @final
 class MegaDownloadClient(DownloadClient):  # pyright: ignore[reportGeneralTypeIssues]
-    def __init__(self, manager: Manager) -> None:
-        super().__init__(manager)
-        self._supports_ranges = False
+    SUPPORTS_RANGES: ClassVar[bool] = False
 
     @override
     async def _append_content(self, media_item: MediaItem, hook: ProgressHook, resp: AbstractResponse[Any]) -> None:
@@ -28,7 +24,7 @@ class MegaDownloadClient(DownloadClient):  # pyright: ignore[reportGeneralTypeIs
 
         check_free_space = storage.create_free_space_checker(media_item)
         check_download_speed = make_speed_checker(media_item, hook, self.download_speed_threshold)
-        await check_free_space(media_item.size)
+        await check_free_space(_get_content_length(resp.headers))
         await self._pre_download_check(media_item)
 
         crypto, file_size = media_item.extra_info[media_item.domain]["key"]
@@ -57,14 +53,10 @@ class MegaDownloadClient(DownloadClient):  # pyright: ignore[reportGeneralTypeIs
         media_item.partial_file.touch()
 
 
-@dataclasses.dataclass(slots=True)
 class MegaDownloader(Downloader):
-    _client: MegaDownloadClient = dataclasses.field(init=False)
-    SUPPORTS_RETRIES: ClassVar[bool] = True
-
     def __post_init__(self) -> None:
-        super(MegaDownloader, self).__post_init__()
-        self._client = MegaDownloadClient(self.manager)
+        super().__post_init__()
+        self._client: MegaDownloadClient = MegaDownloadClient(self.manager)  # pyright: ignore[reportUninitializedInstanceVariable]
 
     @property
     @override

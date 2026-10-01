@@ -1,19 +1,20 @@
 """Pydantic models"""
 
+from __future__ import annotations
+
 import logging
-import time
-import warnings
-from collections.abc import Generator, Iterable
-from typing import Any, ClassVar, Final, Self, TypedDict, final, get_args, get_origin, override
+from typing import TYPE_CHECKING, Any, ClassVar, Final, Self, TypedDict, final, get_args, get_origin, override
 
 from cyclopts import Parameter
-from cyclopts.annotations import resolve
 from pydantic import AnyUrl, BaseModel, Secret, SerializationInfo, TypeAdapter, model_serializer, model_validator
-from pydantic.fields import FieldInfo
+from pydantic.fields import FieldInfo  # noqa: TC002
 
 from cyberdrop_dl import env
 from cyberdrop_dl.constants import DEFAULT_PARAMETER
 from cyberdrop_dl.utils import fast_cache, operators
+
+if TYPE_CHECKING:
+    from collections.abc import Generator, Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -33,15 +34,23 @@ class DeferredModel(
 
 _warned: set[tuple[type, str]] = set()
 
+# Merges re-validate from a full dump, marking every field as set; this context lets model_post_init tell.
+MERGE_CONTEXT: Final[dict[str, bool]] = {"merging": True}
+
 
 @DEFAULT_PARAMETER
 class ConfigModel(DeferredModel, extra="forbid"):
     @override
     def model_post_init(self, context: Any, /) -> None:
         super().model_post_init(context)
+        if context is MERGE_CONTEXT:
+            return
+
         deprecated = self.model_fields_set.intersection(_deprecated_fields(self))
         if not deprecated:
             return
+
+        import time
 
         for field in deprecated:
             warn_id = type(self), field
@@ -181,7 +190,17 @@ def merge_models[M: BaseModel](
     current_data = default.model_dump()
     new_data = new.model_dump(exclude_unset=True)
     updated_dict = merge_dicts(current_data, new_data, additive_keys)
-    return default.model_validate(updated_dict)
+    merged = default.model_validate(updated_dict, context=MERGE_CONTEXT)
+    _restore_fields_set(merged, default, new)
+    return merged
+
+
+def _restore_fields_set(merged: BaseModel, default: BaseModel, new: BaseModel) -> None:
+    # Reads __dict__ instead of getattr so deprecated fields don't trigger their DeprecationWarning.
+    merged.__pydantic_fields_set__.intersection_update(default.model_fields_set | new.model_fields_set)
+    for name, value in merged.__dict__.items():
+        if isinstance(value, BaseModel):
+            _restore_fields_set(value, default.__dict__[name], new.__dict__[name])
 
 
 @fast_cache
@@ -241,6 +260,8 @@ class FieldMetadata:
 
     @classmethod
     def _resolve(cls, model: BaseModel) -> Generator[str]:
+        import warnings
+
         for name, field in type(model).model_fields.items():
             if cls._check(field):
                 yield name
@@ -259,6 +280,8 @@ class AdditiveArg(FieldMetadata):
     @override
     @classmethod
     def _check(cls, field: FieldInfo) -> bool:
+        from cyclopts.annotations import resolve
+
         if get_origin(field.annotation) in {set, list, tuple}:
             arg = resolve(get_args(field.annotation)[0])
             all_args = get_args(arg) or [arg]
@@ -269,6 +292,8 @@ class AdditiveArg(FieldMetadata):
 
 
 def _is_str(type_: object) -> bool:
+    from cyclopts.annotations import resolve
+
     type_ = resolve(type_)
     if type_ is str:
         return True

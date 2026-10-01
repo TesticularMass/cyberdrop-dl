@@ -2,12 +2,12 @@ import dataclasses
 import hashlib
 
 import pytest
-from bs4 import BeautifulSoup
 from multidict import CIMultiDict
 
 from cyberdrop_dl import ddos_guard
 from cyberdrop_dl.clients.request import prepare_headers
 from cyberdrop_dl.exceptions import DDOSGuardError
+from cyberdrop_dl.utils import css
 
 anubis_html = """
     <!doctype html>
@@ -34,7 +34,7 @@ anubis_html = """
     </body>
     </html>
 """
-anubis_soup = BeautifulSoup(anubis_html, "html.parser")
+anubis_soup = css.soup(anubis_html)
 
 
 def test_anubis_detection() -> None:
@@ -55,18 +55,17 @@ async def test_solve_anubis_challenge() -> None:
     challenge = ddos_guard.Anubis.parse_challenge(anubis_soup)
     assert challenge
     solution = await ddos_guard.Anubis.solve(challenge)
-    assert solution == ddos_guard._AnubisSolution(
-        id="019abb13-2859-7587-bec3-16e0a3f67ce9",
-        nonce=1676094,
-        hash="00000e426afc08534b13bb3f75bad02dc20d73d70674b9dc174416cc7d3685e6",
-        difficulty=5,
-        total_time=0,
-    )
+    assert solution.id == challenge.id
+    assert solution.difficulty == challenge.difficulty
+    assert solution.nonce >= 0
+    assert solution.hash == hashlib.sha256(f"{challenge.data}{solution.nonce}".encode()).hexdigest()
+    assert solution.hash.startswith("0" * challenge.difficulty)
+    assert solution.total_time >= 0
 
 
 async def test_ddos_response_should_raise_ddos_guard_error() -> None:
     with pytest.raises(DDOSGuardError):
-        ddos_guard.check_html(anubis_html)
+        await ddos_guard.check_html(anubis_html)
 
 
 @dataclasses.dataclass(slots=True)

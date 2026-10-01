@@ -292,3 +292,21 @@ async def test_sorter_corrupted_archive_is_kept_and_counted(tmp_path: Path) -> N
     # extraction failed so the archive is kept, but the sort pass still moves it as non-media
     assert (tmp_path / "sorted/other/corrupt.zip").exists()
     assert sorter.stats.errors == 1
+
+
+async def test_sorter_retries_passwords_for_header_encrypted_7z(tmp_path: Path) -> None:
+    import py7zr
+
+    input_dir = tmp_path / "downloads"
+    input_dir.mkdir()
+    archive = input_dir / "protected.7z"
+    with py7zr.SevenZipFile(archive, "w", password=_PASSWORD, header_encryption=True) as seven_zip_file:
+        seven_zip_file.writestr(_CONTENT, "secret.txt")
+    async with Database(tmp_path / "test_db.db") as db:
+        await _seed_password(db, input_dir, archive.name, "wrong-password")
+        await _seed_password(db, input_dir, "other.7z", _PASSWORD)
+        sorter = _make_sorter(input_dir, tmp_path / "sorted", db)
+        await sorter.run(disable_tui=True)
+    assert not archive.exists()
+    assert (tmp_path / "sorted/other/secret.txt").read_bytes() == _CONTENT
+    assert sorter.stats.errors == 0

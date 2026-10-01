@@ -7,7 +7,7 @@ from cyberdrop_dl import aio
 from cyberdrop_dl.crawlers._kvs import extract_kvs_video
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths, URLConfig
 from cyberdrop_dl.url_objects import AbsoluteHttpURL
-from cyberdrop_dl.utils import css
+from cyberdrop_dl.utils import css, json_ld
 from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
@@ -62,17 +62,17 @@ class PimpBunnyCrawler(Crawler):
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         match scrape_item.url.parts[1:]:
             case ["videos", _, *_]:
-                return await self.video(scrape_item)
+                await self.video(scrape_item)
             case ["onlyfans-models", model_name, *_]:
-                return await self.model(scrape_item, model_name)
+                await self.model(scrape_item, model_name)
             case ["albums", "models", model_name, *_]:
-                return await self.model_albums(scrape_item, model_name)
+                await self.model_albums(scrape_item, model_name)
             case ["albums", name, *_]:
-                return await self.album(scrape_item, name)
+                await self.album(scrape_item, name)
             case ["categories" as type_, name, *_]:
-                return await self.collection(scrape_item, type_, name)
+                await self.collection(scrape_item, type_, name)
             case ["tags" as type_, name, *_]:
-                return await self.collection(scrape_item, type_, name)
+                await self.collection(scrape_item, type_, name)
             case _:
                 raise ValueError
 
@@ -132,7 +132,8 @@ class PimpBunnyCrawler(Crawler):
         custom_filename = self.create_custom_filename(
             video.title, video.url.suffix, file_id=video.id, resolution=video.resolution
         )
-        scrape_item.uploaded_at = self.parse_iso_date(css.json_ld(soup)["uploadDate"])
+
+        scrape_item.uploaded_at = json_ld.upload_date(soup)
         await self.handle_file(
             scrape_item.url,
             scrape_item,

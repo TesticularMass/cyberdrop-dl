@@ -13,7 +13,7 @@ from cyberdrop_dl.utils.errors import error_handling_wrapper
 if TYPE_CHECKING:
     from bs4 import BeautifulSoup
 
-    from cyberdrop_dl.data_structures.url_objects import ScrapeItem
+    from cyberdrop_dl.url_objects import ScrapeItem
 
 
 class Selectors:
@@ -43,6 +43,8 @@ class DoodStreamCrawler(Crawler):
         "playmogo.com",
         "vidply.com",
         "dooodster.com",
+        "d000d.com",
+        "myvidplay.com",
     )
     PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://doodstream.com/")
     UPDATE_UNSUPPORTED: ClassVar[bool] = True
@@ -50,9 +52,11 @@ class DoodStreamCrawler(Crawler):
     FOLDER_DOMAIN: ClassVar[str] = "DoodStream"
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
-        if "e" in scrape_item.url.parts:
-            return await self.video(scrape_item)
-        raise ValueError
+        match scrape_item.url.parts[1:]:
+            case ["e", _, *_]:
+                await self.video(scrape_item)
+            case _:
+                raise ValueError
 
     @error_handling_wrapper
     async def video(self, scrape_item: ScrapeItem) -> None:

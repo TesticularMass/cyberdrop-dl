@@ -7,7 +7,7 @@ from cyberdrop_dl.clients.http import HTTPConfig
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
 from cyberdrop_dl.mediaprops import Resolution
 from cyberdrop_dl.url_objects import AbsoluteHttpURL
-from cyberdrop_dl.utils import css, open_graph
+from cyberdrop_dl.utils import css, json_ld, open_graph
 from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
@@ -46,11 +46,11 @@ class TNAFlixCrawler(Crawler):
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         match scrape_item.url.parts[1:]:
             case [_, _, name] if name.startswith("video") and (video_id := name.removeprefix("video")):
-                return await self.video(scrape_item, video_id)
+                await self.video(scrape_item, video_id)
             case ["search" as type_] if query := scrape_item.url.query.get("what"):
-                return await self.collection(scrape_item, type_, query)
+                await self.collection(scrape_item, type_, query)
             case ["channel" | "profile" as type_, _]:
-                return await self.collection(scrape_item, type_)
+                await self.collection(scrape_item, type_)
             case _:
                 raise ValueError
 
@@ -64,7 +64,7 @@ class TNAFlixCrawler(Crawler):
         link = self.parse_url(best_format.link_str)
         filename, ext = self.get_filename_and_ext(link.name)
         title = open_graph.title(soup)
-        scrape_item.uploaded_at = self.parse_iso_date(css.json_ld(soup)["uploadDate"])
+        scrape_item.uploaded_at = json_ld.upload_date(soup)
         custom_filename = self.create_custom_filename(title, ext, file_id=video_id, resolution=best_format.resolution)
         return await self.handle_file(link, scrape_item, filename, ext, custom_filename=custom_filename)
 

@@ -6,7 +6,7 @@ from cyberdrop_dl import aio
 from cyberdrop_dl.clients.http import HTTPConfig
 from cyberdrop_dl.crawlers.crawler import Crawler
 from cyberdrop_dl.mediaprops import Resolution
-from cyberdrop_dl.utils import css, open_graph
+from cyberdrop_dl.utils import css, json_ld, open_graph
 from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
@@ -36,17 +36,21 @@ class FluidPlayerCrawler(Crawler, is_abc=True):
     @error_handling_wrapper
     async def video(self, scrape_item: ScrapeItem, video_id: str) -> None:
         if await self.check_complete_from_referer(scrape_item.url):
-            return None
+            return
 
         soup = await self.request_soup(scrape_item.url)
         best_format = max(_parse_formats(soup))
-        link = self.parse_url(best_format.link_str)
-        filename, ext = self.get_filename_and_ext(link.name)
-        title = open_graph.title(soup)
-        scrape_item.uploaded_at = self.parse_iso_date(css.json_ld(soup)["uploadDate"])
-        custom_filename = self.create_custom_filename(title, ext, file_id=video_id, resolution=best_format.resolution)
-        return await self.handle_file(
-            scrape_item.url, scrape_item, filename, ext, custom_filename=custom_filename, debrid_link=link
+        src = self.parse_url(best_format.link_str)
+        _, ext = self.get_filename_and_ext(src.name)
+        name = open_graph.title(soup)
+        scrape_item.uploaded_at = json_ld.upload_date(soup)
+        await self.handle_file(
+            scrape_item.url,
+            scrape_item,
+            name,
+            ext,
+            custom_filename=self.create_custom_filename(name, ext, file_id=video_id, resolution=best_format.resolution),
+            debrid_link=src,
         )
 
     @error_handling_wrapper

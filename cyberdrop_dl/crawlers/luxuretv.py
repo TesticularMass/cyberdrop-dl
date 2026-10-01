@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, ClassVar, final
 from cyberdrop_dl.clients.http import HTTPConfig
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths, URLConfig
 from cyberdrop_dl.url_objects import AbsoluteHttpURL
-from cyberdrop_dl.utils import css
+from cyberdrop_dl.utils import css, json_ld
 from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
@@ -35,10 +35,10 @@ class LuxureTVCrawler(Crawler):
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         match scrape_item.url.parts[1:]:
             case ["searchgate", "videos", query, *_]:
-                return await self.search(scrape_item, query)
+                await self.search(scrape_item, query)
             case ["videos", slug, *_]:
                 video_id = slug.split("-")[-1].split(".")[0]
-                return await self.video(scrape_item, video_id)
+                await self.video(scrape_item, video_id)
             case _:
                 raise ValueError
 
@@ -61,7 +61,8 @@ class LuxureTVCrawler(Crawler):
             return None
 
         soup = await self.request_soup(scrape_item.url, impersonate=True)
-        scrape_item.uploaded_at = self.parse_iso_date(css.json_ld(soup)["uploadDate"])
+
+        scrape_item.uploaded_at = json_ld.upload_date(soup)
         video_player = css.select(soup, Selector.VIDEO_PLAYER)
         title = css.select_text(soup, Selector.TITLE)
         link = self.parse_url(css.attr(video_player, "src"))

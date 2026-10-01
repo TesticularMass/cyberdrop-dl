@@ -5,12 +5,13 @@ import itertools
 import json
 from typing import TYPE_CHECKING, ClassVar
 
+from cyberdrop_dl import aio
 from cyberdrop_dl.clients.http import HTTPConfig
 from cyberdrop_dl.crawlers.crawler import Crawler, DownloadConfig, SupportedPaths
 from cyberdrop_dl.exceptions import ScrapeError
 from cyberdrop_dl.mediaprops import Resolution
 from cyberdrop_dl.url_objects import AbsoluteHttpURL
-from cyberdrop_dl.utils import css, extr_text, parse_url
+from cyberdrop_dl.utils import css, extr_text, json_ld, parse_url
 from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
@@ -54,9 +55,9 @@ class NoodleMagazineCrawler(Crawler):
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         match scrape_item.url.parts[1:]:
             case ["watch", _]:
-                return await self.video(scrape_item)
+                await self.video(scrape_item)
             case ["video", query]:
-                return await self.search(scrape_item, query)
+                await self.search(scrape_item, query)
             case _:
                 raise ValueError
 
@@ -86,23 +87,26 @@ class NoodleMagazineCrawler(Crawler):
             return
 
         soup = await self.request_soup(scrape_item.url)
-        video = _parse_video(soup)
+        video = await _parse_video(soup)
 
         scrape_item.uploaded_at = self.parse_iso_date(video.uploaded_at)
         _, ext = self.get_filename_and_ext(filename=video.content_url.name)
-        filename = self.create_custom_filename(video.title, ext, file_id=video.id, resolution=video.resolution)
         await self.handle_file(
             video.content_url,
             scrape_item,
             video.title,
             ext,
-            custom_filename=filename,
+            custom_filename=self.create_custom_filename(
+                video.title, ext, file_id=video.id, resolution=video.resolution
+            ),
             debrid_link=video.src,
         )
 
 
+@aio.to_thread
 def _parse_video(soup: BeautifulSoup) -> Video:
-    json_ld = css.json_ld(soup)
+
+    _, props = json_ld.find(soup, "contentUrl")
 
     try:
         playlist_js = css.select_text(soup, Selector.PLAYLIST)
@@ -112,11 +116,11 @@ def _parse_video(soup: BeautifulSoup) -> Video:
     playlist = json.loads(extr_text(playlist_js, "window.playlist = ", ";\nwindow.ads"))
 
     resolution, src = max(_parse_sources(playlist["sources"]))
-    content_url = parse_url(json_ld["contentUrl"])
+    content_url = parse_url(props["contentUrl"])
 
     return Video(
-        title=json_ld["name"],
-        uploaded_at=json_ld["uploadDate"],
+        title=props["name"],
+        uploaded_at=props["uploadDate"],
         content_url=content_url,
         id=content_url.name.removesuffix(content_url.suffix),
         resolution=resolution,

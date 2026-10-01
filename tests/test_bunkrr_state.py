@@ -39,3 +39,16 @@ async def test_new_bunkrr_crawler_does_not_inherit_bad_hosts(manager, monkeypatc
     await second._request_soup_lenient(url)
 
     second_try.assert_awaited()
+
+
+async def test_working_bunkr_host_is_remembered_per_crawler(manager, monkeypatch):
+    first = BunkrrCrawler(manager, mock.MagicMock(), mock.MagicMock())
+    second = BunkrrCrawler(manager, mock.MagicMock(), mock.MagicMock())
+    request = mock.MagicMock()
+    response = request.return_value.__aenter__.return_value
+    response.url = AbsoluteHttpURL("https://bunkr.site/a/test")
+    response.soup = AsyncMock(return_value=object())
+    monkeypatch.setattr(first, "request", request)
+    await first._try_request_soup(response.url)
+    assert first._known_good_host == "bunkr.site"
+    assert second._known_good_host is None

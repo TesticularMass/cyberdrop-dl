@@ -103,6 +103,33 @@
       "title": "BandcampConfig",
       "type": "object"
     },
+    "BlueSkyConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "external": {
+          "default": true,
+          "title": "External",
+          "type": "boolean"
+        },
+        "threads": {
+          "default": true,
+          "title": "Threads",
+          "type": "boolean"
+        },
+        "content_urls": {
+          "default": true,
+          "title": "Content Urls",
+          "type": "boolean"
+        },
+        "reposts": {
+          "default": false,
+          "title": "Reposts",
+          "type": "boolean"
+        }
+      },
+      "title": "BlueSkyConfig",
+      "type": "object"
+    },
     "ByteSizeSerilized": {
       "anyOf": [
         {
@@ -184,35 +211,41 @@
         "bandcamp": {
           "$ref": "#/$defs/BandcampConfig"
         },
+        "bluesky": {
+          "$ref": "#/$defs/BlueSkyConfig"
+        },
+        "clonr": {
+          "$ref": "#/$defs/ClonrConfig"
+        },
         "clypit": {
           "$ref": "#/$defs/ClypitConfig"
         },
         "generic": {
           "$ref": "#/$defs/GenericCrawlers"
         },
+        "google_drive": {
+          "$ref": "#/$defs/GoogleDriveConfig"
+        },
+        "octave_music": {
+          "$ref": "#/$defs/OctaveMusicConfig"
+        },
         "one_pace": {
           "$ref": "#/$defs/OnePaceConfig"
+        },
+        "only_haven": {
+          "$ref": "#/$defs/KemonoConfig"
+        },
+        "pawchive": {
+          "$ref": "#/$defs/KemonoConfig"
+        },
+        "pornhub": {
+          "$ref": "#/$defs/PornHubConfig"
         },
         "tiktok": {
           "$ref": "#/$defs/TikTokConfig"
         },
         "twitter": {
           "$ref": "#/$defs/TwitterConfig"
-        },
-        "pawchive": {
-          "$ref": "#/$defs/KemonoConfig"
-        },
-        "only_haven": {
-          "$ref": "#/$defs/KemonoConfig"
-        },
-        "octave_music": {
-          "$ref": "#/$defs/OctaveMusicConfig"
-        },
-        "clonr": {
-          "$ref": "#/$defs/ClonrConfig"
-        },
-        "pornhub": {
-          "$ref": "#/$defs/PornHubConfig"
         }
       },
       "title": "Crawlers",
@@ -557,9 +590,70 @@
           },
           "title": "Video",
           "type": "array"
+        },
+        "peertube": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/HttpURL"
+          },
+          "title": "Peertube",
+          "type": "array"
         }
       },
       "title": "GenericCrawlers",
+      "type": "object"
+    },
+    "GoogleDriveConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "default_formats": {
+          "$ref": "#/$defs/GoogleDriveFormats"
+        }
+      },
+      "title": "GoogleDriveConfig",
+      "type": "object"
+    },
+    "GoogleDriveFormats": {
+      "additionalProperties": false,
+      "properties": {
+        "docs": {
+          "default": "docx",
+          "enum": [
+            "docx",
+            "odt",
+            "rtf",
+            "txt",
+            "epub",
+            "pdf",
+            "md",
+            "zip"
+          ],
+          "title": "Docs",
+          "type": "string"
+        },
+        "sheets": {
+          "default": "xslx",
+          "enum": [
+            "xslx",
+            "ods",
+            "html",
+            "csv",
+            "tsv"
+          ],
+          "title": "Sheets",
+          "type": "string"
+        },
+        "slides": {
+          "default": "pptx",
+          "enum": [
+            "pptx",
+            "odp"
+          ],
+          "title": "Slides",
+          "type": "string"
+        }
+      },
+      "title": "GoogleDriveFormats",
       "type": "object"
     },
     "HashMode": {
@@ -718,6 +812,11 @@
           "title": "Content Urls",
           "type": "boolean"
         },
+        "expand_posts": {
+          "default": false,
+          "title": "Expand Posts",
+          "type": "boolean"
+        },
         "embed": {
           "default": true,
           "title": "Embed",
@@ -749,6 +848,10 @@
         "last_forum_post": {
           "$ref": "#/$defs/CSVPath",
           "default": "last_forum_post.csv"
+        },
+        "dedupe": {
+          "$ref": "#/$defs/CSVPath",
+          "default": "dedupe.csv"
         }
       },
       "title": "LogFiles",
@@ -864,6 +967,16 @@
           "title": "Flaresolverr Concurrency",
           "type": "integer"
         },
+        "playwright": {
+          "default": false,
+          "title": "Playwright",
+          "type": "boolean"
+        },
+        "playwright_visible": {
+          "default": false,
+          "title": "Playwright Visible",
+          "type": "boolean"
+        },
         "proxy": {
           "$ref": "#/$defs/FalsyAsNone_HttpURL_",
           "default": null
@@ -894,7 +1007,7 @@
         },
         "user_agent": {
           "$ref": "#/$defs/NonEmptyStr",
-          "default": "Mozilla/5.0 (X11; Linux x86_64; rv:150.0) Gecko/20100101 Firefox/150.0"
+          "default": "Mozilla/5.0 (X11; Linux x86_64; rv:153.0) Gecko/20100101 Firefox/153.0"
         },
         "impersonate": {
           "$ref": "#/$defs/FalsyAsNone_ImpersonateTarget_",
@@ -1501,6 +1614,11 @@
     },
     "ui": {
       "$ref": "#/$defs/UIOptions"
+    },
+    "update_check": {
+      "default": true,
+      "title": "Update Check",
+      "type": "boolean"
     }
   },
   "title": "cyberdrop-dl config",

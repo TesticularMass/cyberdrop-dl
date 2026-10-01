@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
 from cyberdrop_dl.url_objects import AbsoluteHttpURL
-from cyberdrop_dl.utils import css
+from cyberdrop_dl.utils import css, json_ld
 from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
@@ -29,7 +29,7 @@ class YTboobCrawler(Crawler):
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         match scrape_item.url.parts[1:]:
             case [_]:
-                return await self.video(scrape_item)
+                await self.video(scrape_item)
             case _:
                 raise ValueError
 
@@ -56,7 +56,7 @@ class YTboobCrawler(Crawler):
 
     async def _request_video(self, url: AbsoluteHttpURL) -> Video:
         soup = await self.request_soup(url)
-        article: dict[str, Any] = next(p for p in css.json_ld(soup)["@graph"] if p.get("@type") == "Article")
+        article: dict[str, Any] = json_ld.find_elem(soup, "Article")
         return Video(
             thumbnail=self.parse_url(article["thumbnailUrl"]),
             uploaded_at=self.parse_iso_date(article["datePublished"]),

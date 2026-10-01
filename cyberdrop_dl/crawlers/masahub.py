@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar
 
-from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
+from cyberdrop_dl.crawlers.crawler import Crawler, SupportedDomains, SupportedPaths
 from cyberdrop_dl.url_objects import AbsoluteHttpURL
-from cyberdrop_dl.utils import css
+from cyberdrop_dl.utils import css, json_ld
 from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
@@ -19,22 +19,34 @@ class Selector:
 
 
 class MasahubCrawler(Crawler):
-    SUPPORTED_DOMAINS = "masa49.com", "masahub.com", "masahub2.com", "masafun.net", "lol49.com", "vido99.com"
+    SUPPORTED_DOMAINS: ClassVar[SupportedDomains] = (
+        "masa49.com",
+        "masahub.com",
+        "masahub2.com",
+        "masafun.net",
+        "lol49.com",
+        "vido99.com",
+    )
     SUPPORTED_PATHS: ClassVar[SupportedPaths] = {
         "Videos": "/title",
         "Search": "?s=<query>",
     }
-    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://masahub.com")
+    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://lalamasa.mobi/")
     DOMAIN: ClassVar[str] = "masahub.com"
     FOLDER_DOMAIN: ClassVar[str] = "Masahub"
+    OLD_DOMAINS: ClassVar[tuple[str, ...]] = ("masahub.com",)
     NEXT_PAGE_SELECTOR: ClassVar[str] = Selector.NEXT_PAGE
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
-        if query := scrape_item.url.query.get("s"):
-            return await self.search(scrape_item, query)
-        if len(scrape_item.url.parts) >= 2:
-            return await self.video(scrape_item)
-        raise ValueError
+        match scrape_item.url.parts[1:]:
+            case ["search", query]:
+                await self.search(scrape_item, query)
+            case [] if query := scrape_item.url.query.get("s"):
+                await self.search(scrape_item, query)
+            case [_, *_]:
+                await self.video(scrape_item)
+            case _:
+                raise ValueError
 
     @error_handling_wrapper
     async def video(self, scrape_item: ScrapeItem) -> None:
@@ -45,7 +57,7 @@ class MasahubCrawler(Crawler):
         link = self.parse_url(Selector.VIDEO_SRC(soup))
         title = css.select_text(soup, Selector.TITLE)
         _, ext = self.get_filename_and_ext(link.name)
-        scrape_item.uploaded_at = self.parse_iso_date(css.json_ld(soup)["uploadDate"])
+        scrape_item.uploaded_at = json_ld.upload_date(soup)
         custom_filename = self.create_custom_filename(title, ext)
         return await self.handle_file(link, scrape_item, link.name, ext, custom_filename=custom_filename)
 

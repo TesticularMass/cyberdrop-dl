@@ -2,11 +2,33 @@ from typing import Annotated, Any, Literal, override
 
 from cyclopts import Parameter
 from pydantic import Field, PositiveFloat
-from pydantic.functional_validators import AfterValidator
+from pydantic.functional_validators import AfterValidator, field_validator
 
 from cyberdrop_dl.models import ConfigGroup, ConfigModel
 from cyberdrop_dl.models.types import FormatStr, HttpURL, NonEmptyStr
 from cyberdrop_dl.models.validators import remove_duplicates, strings
+
+
+class GoogleDriveFormats(ConfigModel):
+    docs: Literal["docx", "odt", "rtf", "txt", "epub", "pdf", "md", "zip"] = "docx"
+    "Default format for documents (can be overridden per URL with the 'format' query param)"
+
+    sheets: Literal["xslx", "ods", "html", "csv", "tsv"] = "xslx"
+    "Default format for spreedsheets (can be overridden per URL with the 'format' query param)"
+
+    slides: Literal["pptx", "odp"] = "pptx"
+    "Default format for presentations (can be overridden per URL with the 'format' query param)"
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _remove_dots(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.lstrip(".")
+        return value
+
+
+class GoogleDriveConfig(ConfigModel):
+    default_formats: GoogleDriveFormats = Field(default_factory=GoogleDriveFormats)
 
 
 class KemonoConfig(ConfigModel):
@@ -17,7 +39,10 @@ class KemonoConfig(ConfigModel):
     "Download all attachments in a post (may or may not include `file`)"
 
     content_urls: bool = True
-    "Download any URL found inside the description (text) of a post (slower)"
+    "Download any URL found inside the description (text) of a post"
+
+    expand_posts: bool = False
+    "Make an additional API request for each post to get original filenames and the content/text (slower)"
 
     embed: bool = True
     "Download the embedded file from third party sites (if any)(mega.nz, pcloud, dropbox, etc..)"
@@ -38,7 +63,7 @@ class TwitterArticlesConfig(ConfigModel):
 
 class TwitterConfig(ConfigModel):
     cards: bool = True
-    "Parse and download cards in a post (embeds from thirdparty sites)"
+    "Parse and download cards in a post (embeds from third-party sites)"
 
     threads: bool = True
     "Downloads all posts in a thread (All direct replies from OP to their own tweet)"
@@ -55,6 +80,20 @@ class TwitterConfig(ConfigModel):
     image_size: Literal["orig", "4096x4096", "large", "medium", "small", "thumb"] = "orig"
     # `orig`` is original quality but it's not always available, same as "4096x4096"
     # "large", "medium", or "small" are always available
+
+
+class BlueSkyConfig(ConfigModel):
+    external: bool = True
+    "Parse and download embeds from third-party sites"
+
+    threads: bool = True
+    "Downloads all posts in a thread (All direct replies from OP to their own post)"
+
+    content_urls: bool = True
+    "Parse and try to download any URL found inside the text of a post"
+
+    reposts: bool = False
+    "Download media from reposts in the user's timeline"
 
 
 class OctaveMusicConfig(ConfigModel):
@@ -140,6 +179,7 @@ class GenericCrawlers(ConfigModel):
     chevereto: tuple[HttpURL, ...] = ()
     kvs: tuple[HttpURL, ...] = ()
     video: tuple[HttpURL, ...] = ()
+    peertube: tuple[HttpURL, ...] = ()
 
 
 class Crawlers(ConfigGroup, name=None):
@@ -147,18 +187,20 @@ class Crawlers(ConfigGroup, name=None):
     "Name of crawlers to disable for the current run"
 
     rate_limits: Annotated[dict[NonEmptyStr, tuple[PositiveFloat, PositiveFloat]], Parameter(parse=False)] = Field(
-        default_factory=dict
+        default_factory=lambda: {"simpcity": (1, 3)}
     )
     "Override the rate limit of a crawler (by domain) as [requests, seconds], e.g. {'simpcity': [1, 5]}"
 
     bandcamp: BandcampConfig = Field(default_factory=BandcampConfig)
+    bluesky: BlueSkyConfig = Field(default_factory=BlueSkyConfig)
+    clonr: ClonrConfig = Field(default_factory=ClonrConfig)
     clypit: ClypitConfig = Field(default_factory=ClypitConfig)
     generic: GenericCrawlers = Field(default_factory=GenericCrawlers)
+    google_drive: GoogleDriveConfig = Field(default_factory=GoogleDriveConfig)
+    octave_music: OctaveMusicConfig = Field(default_factory=OctaveMusicConfig)
     one_pace: OnePaceConfig = Field(default_factory=OnePaceConfig)
+    only_haven: KemonoConfig = Field(default_factory=KemonoConfig)
+    pawchive: KemonoConfig = Field(default_factory=KemonoConfig)
+    pornhub: PornHubConfig = Field(default_factory=PornHubConfig)
     tiktok: TikTokConfig = Field(default_factory=TikTokConfig)
     twitter: TwitterConfig = Field(default_factory=TwitterConfig)
-    pawchive: KemonoConfig = Field(default_factory=KemonoConfig)
-    only_haven: KemonoConfig = Field(default_factory=KemonoConfig)
-    octave_music: OctaveMusicConfig = Field(default_factory=OctaveMusicConfig)
-    clonr: ClonrConfig = Field(default_factory=ClonrConfig)
-    pornhub: PornHubConfig = Field(default_factory=PornHubConfig)

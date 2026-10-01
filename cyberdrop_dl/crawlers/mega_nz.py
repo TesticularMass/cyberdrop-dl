@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     from mega.filesystem import FileSystem
 
     from cyberdrop_dl.url_objects import ScrapeItem
-    from cyberdrop_dl.utils import m3u8
 
 
 @HTTPConfig.default_headers(user_agent=CDL_USER_AGENT)
@@ -81,7 +80,7 @@ class MegaNzCrawler(Crawler):
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         if not self._logged_in:
-            return None
+            return
 
         info = self.core.parse_url(scrape_item.url, check_key=False)
         if not info.public_key and scrape_item.password:
@@ -91,10 +90,11 @@ class MegaNzCrawler(Crawler):
 
         if not info.public_key:
             self.raise_exc(scrape_item, PasswordProtectedError("Public key missing from URL"))
-            return None
+            return
 
         if not info.is_folder:
-            return await self.file(scrape_item, info.public_handle, info.public_key)
+            await self.file(scrape_item, info.public_handle, info.public_key)
+            return
 
         await self.folder(scrape_item, info.public_handle, info.public_key, info.selected_folder, info.selected_file)
 
@@ -169,10 +169,9 @@ class MegaNzCrawler(Crawler):
             scrape_item.add_children()
 
     @override
-    async def handle_media_item(self, media_item: MediaItem, m3u8: m3u8.Rendition | None = None) -> None:
+    def _prepare_media_item(self, media_item: MediaItem) -> None:
         media_item.extra_info.setdefault(self.DOMAIN, {})["key"] = self._decryption_keys.pop(media_item.url)
         media_item.extra_info["impersonate"] = False  # We need aiohttp for precise chunks reads
-        await super().handle_media_item(media_item, m3u8)
 
     async def _login(self) -> None:
         # This takes a really long time (dozens of seconds)

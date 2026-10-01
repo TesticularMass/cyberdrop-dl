@@ -85,12 +85,12 @@ def _extract_zip_w_pyzipper(archive: Path, dest: Path, pwd: bytes | None, stdlib
     try:
         with pyzipper.AESZipFile(archive) as zip_file:
             zip_file.extractall(dest, pwd=pwd)
+    except NotImplementedError as e:
+        raise UnsupportedArchiveError(f"'{archive.name}' uses an unsupported compression method: {e}") from e
     except RuntimeError as e:
         if pwd is not None:
             raise WrongPasswordError(f"wrong password for '{archive.name}'") from e
         raise EncryptedArchiveError(f"'{archive.name}' is password protected") from e
-    except NotImplementedError as e:
-        raise UnsupportedArchiveError(f"'{archive.name}' uses an unsupported compression method: {e}") from e
     except (zipfile.BadZipFile, zlib.error) as e:
         if pwd is not None:
             raise WrongPasswordError(f"wrong password for '{archive.name}'") from e
@@ -113,7 +113,13 @@ def _extract_7z(archive: Path, dest: Path, password: str | None) -> None:
             seven_zip.extractall(dest)
     except py7zr.exceptions.PasswordRequired as e:
         raise EncryptedArchiveError(f"'{archive.name}' is password protected") from e
+    except TypeError as e:
+        if password is not None and str(e).startswith("Unknown field:"):
+            raise WrongPasswordError(f"wrong password for '{archive.name}'") from e
+        raise
     except py7zr.exceptions.Bad7zFile as e:
+        if password is not None and py7zr.is_7zfile(archive):
+            raise WrongPasswordError(f"wrong password or damaged encrypted header in '{archive.name}'") from e
         raise CorruptedArchiveError(f"'{archive.name}' is not a valid 7z file: {e}") from e
     except (lzma.LZMAError, py7zr.exceptions.CrcError) as e:
         if password is not None:

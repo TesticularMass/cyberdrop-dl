@@ -13,7 +13,7 @@ from cyberdrop_dl.url_objects import AbsoluteHttpURL
 
 @contextlib.contextmanager
 def mock_call() -> Generator[AsyncMock]:
-    with patch("cyberdrop_dl.ffmpeg._run_command", new_callable=AsyncMock) as m:
+    with patch("cyberdrop_dl.ffmpeg._run_cmd", new_callable=AsyncMock) as m:
         m.return_value = ffmpeg.SubProcessResult(
             stdout="{}",
             stderr="",
@@ -27,7 +27,7 @@ def last_call_args(mock: AsyncMock) -> list[Any]:
 
 
 def get_probe_args(mock: AsyncMock) -> list[Any]:
-    return last_call_args(mock)[len(ffmpeg._FFPROBE_CALL_PREFIX) :]
+    return last_call_args(mock)[8:]
 
 
 @pytest.mark.http
@@ -39,7 +39,7 @@ async def test_probe_url_command() -> None:
         "ffprobe",
         "-hide_banner",
         "-loglevel",
-        "error",
+        "warning",
         "-show_streams",
         "-show_format",
         "-print_format",
@@ -67,11 +67,9 @@ async def test_probe_url_w_headers() -> None:
     assert args == [
         "-tls_verify",
         "1",
+        "-headers",
+        "Authorization: Bearer token\r\nUser-Agent: test\r\n",
         "https://example.com/stream.m3u8",
-        "-headers",
-        "Authorization: Bearer token",
-        "-headers",
-        "User-Agent: test",
     ]
 
 
@@ -108,11 +106,11 @@ async def test_probe_url_proxy_headers_no_verify() -> None:
     assert args == [
         "-tls_verify",
         "0",
-        "https://example.com/stream.m3u8",
         "-headers",
-        "X-Custom: value",
+        "X-Custom: value\r\n",
         "-http_proxy",
         "http://proxy:8080",
+        "https://example.com/stream.m3u8",
     ]
 
 
@@ -183,18 +181,32 @@ class TestMergeSubs:
 
         out = tmp_path / "merged.srt"
 
-        ffmpeg._raw_concat(srcs, out)
+        ffmpeg._concat_bytes(srcs, out)
 
         assert out.read_bytes() == b"AAA\nBBB\nCCC\n"
 
     def test_empty_input(self, tmp_path: Path) -> None:
         out = tmp_path / "empty.srt"
-        ffmpeg._raw_concat([], out)
+        ffmpeg._concat_bytes([], out)
         assert out.read_bytes() == b""
 
     def test_single_file(self, tmp_path: Path) -> None:
         src = tmp_path / "subtitles.srt"
         src.write_bytes(b" test \n")
         out = tmp_path / "out.srt"
-        ffmpeg._raw_concat([src], out)
+        ffmpeg._concat_bytes([src], out)
         assert out.read_bytes() == b" test \n"
+
+
+@pytest.mark.parametrize(
+    ("arg", "expected"),
+    [
+        ("Crime dAmour", r"'Crime dAmour'"),
+        ("'Crime dAmour'", r"\''Crime dAmour'\'"),
+        ("Crime d'Amour", r"'Crime d'\''Amour'"),
+        ("  this string starts and ends with whitespaces  ", "'  this string starts and ends with whitespaces  '"),
+        (r"c:\foo", r"'c:\foo'"),
+    ],
+)
+def test_quote(arg: str, expected: str) -> None:
+    assert ffmpeg.quote_concat_arg(arg) == expected

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import html
-import json
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast, overload
+
+from bs4 import BeautifulSoup
+from bs4.filter import SoupStrainer
 
 from cyberdrop_dl.exceptions import ScrapeError
 
@@ -11,6 +14,20 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from bs4.element import Tag
+
+    from cyberdrop_dl.constants import HttpMethod
+
+
+def _choose_html_parser() -> str:
+    try:
+        __import__("lxml")
+    except ImportError:
+        return "html.parser"
+    else:
+        return "lxml"
+
+
+HTML_PARSER = _choose_html_parser()
 
 
 class SelectorError(ScrapeError):
@@ -31,7 +48,7 @@ class CssAttributeSelector(NamedTuple):
 
 @dataclasses.dataclass(slots=True)
 class HTMLForm:
-    method: Literal["GET", "POST"]
+    method: HttpMethod
     action: str
     inputs: dict[str, str | None]
 
@@ -64,12 +81,16 @@ def select_text(tag: Tag, selector: str, *, strip: bool = True, decompose: str |
     return text(inner_tag, strip=strip)
 
 
+def select_tag_text(html: str, tag_name: str) -> str:
+    return select_text(soup(html, parse_only=tag_name), tag_name)
+
+
 def attr_or_none(tag: Tag, attribute: str) -> str | None:
     """Same as `tag.get(attribute)` but asserts the result is a single str"""
     attribute_ = attribute
     if attribute_ == "srcset":
         if (srcset := tag.get(attribute_)) and type(srcset) is str:
-            return _parse_srcset(srcset)
+            return best_from_srcset(srcset)
         attribute_ = "src"
 
     value = tag.get("data-src") or tag.get(attribute_) if attribute_ == "src" else tag.get(attribute_)
@@ -127,9 +148,33 @@ def iselect(tag: Tag, selector: str, attribute: str | None = None) -> Generator[
                 yield attr
 
 
-def _parse_srcset(srcset: str) -> str:
-    # The best src is the last one (usually)
-    return [src.split(" ")[0] for src in srcset.split(", ")][-1]
+def iselect_text(soup: Tag, /, selector: str, contains: tuple[str, ...] | str = ()) -> Generator[str]:
+    if isinstance(contains, str):
+        contains = (contains,)
+
+    for tag in iselect(soup, selector):
+        content = text(tag)
+        for key in contains:
+            if key not in content:
+                continue
+        yield content
+
+
+def parse_srcset(srcset: str) -> Generator[tuple[str, str]]:
+    for option in srcset.split(","):
+        match option.strip().rsplit(maxsplit=1):
+            case [url, decriptor]:
+                yield decriptor, url
+            case [url]:
+                yield "1x", url
+            case _:
+                continue
+
+
+def best_from_srcset(srcset: str) -> str:
+    options = dict(parse_srcset(srcset))
+    best = max(options, key=lambda decriptor: int(decriptor.rstrip("wx")))
+    return options[best]
 
 
 def decompose(tag: Tag, selector: str) -> None:
@@ -160,40 +205,6 @@ def page_title(soup: Tag, domain: str | None = None) -> str:
     return title
 
 
-def json_ld(soup: Tag, /, contains: str | None = None) -> JsonLD:
-    try:
-        ld_json = next(iter_json_ld(soup, contains)) or {}
-    except StopIteration:
-        details = f" (-contains:'{contains}')" if contains else ""
-        raise SelectorError(f"ld-json tag{details} not found") from None
-    if type(ld_json) is list:
-        ld_json = ld_json[0]
-
-    return cast("JsonLD", ld_json)
-
-
-def iter_json_ld(soup: Tag, /, contains: str | None = None) -> Generator[Any]:
-    return _iter_json(soup, "script[type='application/ld+json']", contains=contains)
-
-
-def iter_json(soup: Tag, /, contains: str | None = None) -> Generator[Any]:
-    return _iter_json(soup, "script[type='application/ld+json'], script[type='application/json']", contains=contains)
-
-
-def _iter_json(
-    soup: Tag,
-    /,
-    selector: str,
-    *,
-    contains: str | None = None,
-) -> Generator[Any]:
-    for tag in iselect(soup, selector):
-        content = text(tag)
-        if contains and contains not in content:
-            continue
-        yield json.loads(content)
-
-
 def parse_form(form: Tag, /) -> HTMLForm:
     inputs: dict[str, str | None] = {}
     for elem in iselect(form, "input"):
@@ -202,7 +213,15 @@ def parse_form(form: Tag, /) -> HTMLForm:
 
     method = attr(form, "method").upper()
     action = attr(form, "action")
-    return HTMLForm(method, action, inputs)
+    return HTMLForm(cast("HttpMethod", method), action, inputs)
+
+
+def soup(content: str, parse_only: tuple[str, ...] | str | None = None) -> BeautifulSoup:
+    return BeautifulSoup(content, HTML_PARSER, parse_only=SoupStrainer(parse_only) if parse_only is not None else None)
+
+
+async def asoup(content: str, parse_only: tuple[str, ...] | str | None = None) -> BeautifulSoup:
+    return await asyncio.to_thread(soup, content, parse_only)
 
 
 unescape = html.unescape

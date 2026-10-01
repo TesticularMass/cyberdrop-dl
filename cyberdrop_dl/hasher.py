@@ -47,7 +47,7 @@ _HASHERS: Final = {
     HashAlgo.SHA256: hashlib.sha256,
 }
 _CHUNK_SIZE: Final = 1024 * 1024  # 1MB
-_CONCURRENCY: Final = 10
+_CONCURRENCY: Final = 4
 
 
 def _compute_hash(file: Path, algorithm: HashAlgo | HashAlgoLiteral, shutdown: threading.Event | None = None) -> str:
@@ -165,7 +165,7 @@ class Hasher:
                     }
 
             hashes = {algo: result for algo, task in task_map.items() if (result := task.result()) is not None}
-            logger.debug("hashes of '%s'\n%s", file, hashes)
+            logger.debug("Hashes of '%s'\n%s", file, hashes)
 
         return hashes.get(HashAlgo.XXH128)
 
@@ -200,7 +200,7 @@ class Hasher:
                     referer,
                 )
         except Exception:
-            logger.exception("Error hashing '%s'", file)
+            logger.exception("Error computing %s hash of '%s'", hash_type, file)
         else:
             return hash_value
 

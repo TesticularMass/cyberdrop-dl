@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-import json
 from collections import defaultdict
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
+from cyberdrop_dl import aio
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths
 from cyberdrop_dl.exceptions import ScrapeError
 from cyberdrop_dl.url_objects import AbsoluteHttpURL
-from cyberdrop_dl.utils import css, dates
+from cyberdrop_dl.utils import css, json_ld
 from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
@@ -30,7 +30,6 @@ class Selector:
     SET_NAME = "span[title='Set'] a"
     SET_ABBR = "span[title='Set Abbreviation']"
     SET_SERIES_CODE = "div.card-tabs span[title='Set Series Code']"
-    SET_INFO = "script:-soup-contains('datePublished')"
     NEXT_PAGE = "li[title='Next Page (Press →)'] a"
 
 
@@ -68,7 +67,7 @@ class CardSet:
     name: str
     abbr: str
     set_series_code: str | None
-    release_date: int
+    release_date: float
 
     @property
     def full_code(self) -> str:
@@ -94,11 +93,11 @@ class PkmncardsCrawler(Crawler):
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         match scrape_item.url.parts[1:]:
             case ["card", _, *_]:
-                return await self.card(scrape_item)
+                await self.card(scrape_item)
             case ["set", slug, *_]:
-                return await self.card_set(scrape_item, slug)
+                await self.card_set(scrape_item, slug)
             case ["series", slug, *_]:
-                return await self.series(scrape_item, slug)
+                await self.series(scrape_item, slug)
             case _:
                 raise ValueError
 
@@ -137,7 +136,7 @@ class PkmncardsCrawler(Crawler):
         number = css.select_text(soup, Selector.CARD_NUMBER)
         link_str: str = css.select(soup, Selector.CARD_DOWNLOAD, "href")
         link = self.parse_url(link_str)
-        card_set = create_set(soup)
+        card_set = await _create_set(soup)
         card = Card(name, number, card_set, link)
         await self._card(scrape_item, card)
 
@@ -155,16 +154,16 @@ class PkmncardsCrawler(Crawler):
         await self.handle_file(link, scrape_item, filename, ext, custom_filename=custom_filename)
 
     async def _simple_card(self, scrape_item: ScrapeItem, simple_card: SimpleCard) -> None:
-        @error_handling_wrapper
-        async def get_card_set(self, scrape_item: ScrapeItem) -> CardSet:
-            soup = await self.request_soup(scrape_item.url)
-            return create_set(soup)
+        async def get_card_set(scrape_item: ScrapeItem) -> CardSet:
+            with self.catch_errors(scrape_item.url):
+                soup = await self.request_soup(scrape_item.url)
+                return await _create_set(soup)
 
         async with self.set_locks[simple_card.set_abbr]:
             card_set = self.known_sets.get(simple_card.set_abbr)
             if not card_set:
                 # Make a request for 1 card, to get the set information about the set
-                card_set = await get_card_set(self, scrape_item)
+                card_set = await get_card_set(scrape_item)
                 if not card_set:  # Request failed
                     return
                 self.known_sets[simple_card.set_abbr] = card_set
@@ -199,21 +198,12 @@ def create_simple_card(title: str, download_url: AbsoluteHttpURL) -> SimpleCard:
     return SimpleCard(card_name.strip(), card_number.strip(), set_name.strip(), set_abbr.strip().upper(), download_url)
 
 
-def create_set(soup: Tag) -> CardSet:
-    tag = soup.select_one(Selector.SET_SERIES_CODE)
-    # Some sets do not have series code
-    set_series_code: str | None = tag.get_text(strip=True) if tag else None
-    set_info: dict[str, list[dict[str, Any]]] = json.loads(css.select_text(soup, Selector.SET_INFO))
-    release_date: int | None = None
-    for item in set_info["@graph"]:
-        if iso_date := item.get("datePublished"):
-            release_date = int(dates.parse_iso(iso_date).timestamp())
-            break
-
-    set_abbr = css.select_text(soup, Selector.SET_ABBR)
-    set_name = css.select_text(soup, Selector.SET_NAME)
-
-    if not release_date:
-        raise ScrapeError(422)
-
-    return CardSet(set_name, set_abbr, set_series_code, release_date)
+@aio.to_thread
+def _create_set(soup: Tag) -> CardSet:
+    series = soup.select_one(Selector.SET_SERIES_CODE)
+    return CardSet(
+        name=css.select_text(soup, Selector.SET_NAME),
+        abbr=css.select_text(soup, Selector.SET_ABBR),
+        set_series_code=series.get_text(strip=True) if series else None,
+        release_date=json_ld.date_published(soup),
+    )

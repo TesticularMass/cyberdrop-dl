@@ -78,6 +78,9 @@ class LogFiles(ConfigModel):
     last_forum_post: CSVPath = Path("last_forum_post.csv")
     "Save the URL of the last scraped post from each thread to this file (MUST BE .csv)"
 
+    dedupe: CSVPath = Path("dedupe.csv")
+    "Save every duplicate deleted by the deduper, and the file it matched, to this file (MUST BE .csv)"
+
     @property
     def jsonl_file(self) -> Path:
         return self.main.with_suffix(".results.jsonl")
@@ -380,7 +383,7 @@ class Network(ConfigGroup):
     ] = Field(default="truststore+certifi", deprecated=True)
     tls: TLS = Field(default_factory=TLS)
 
-    user_agent: NonEmptyStr = "Mozilla/5.0 (X11; Linux x86_64; rv:150.0) Gecko/20100101 Firefox/150.0"
+    user_agent: NonEmptyStr = "Mozilla/5.0 (X11; Linux x86_64; rv:153.0) Gecko/20100101 Firefox/153.0"
     impersonate: FalsyAsNone[ImpersonateTarget] = None
     "Use this target as impersonation for all scrape requests"
 
