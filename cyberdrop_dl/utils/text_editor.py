@@ -94,31 +94,12 @@ def _find_win_editor() -> CMD | None:
 
 def _find_unix_editor() -> CMD | None:
     has_desktop_enviroment = any(var in os.environ for var in ("DISPLAY", "WAYLAND_DISPLAY"))
-    if has_desktop_enviroment and "SSH_CONNECTION" not in os.environ and _set_xdg_yaml_default_if_none():
+    if has_desktop_enviroment and "SSH_CONNECTION" not in os.environ and shutil.which("xdg-open"):
         return (OSDefaultCMD("xdg-open"),)
 
     for bin_path, *args in _UNIX_TEXT_EDITORS:
         if full_path := shutil.which(bin_path):
             return full_path, *args
-
-
-def _set_xdg_yaml_default_if_none() -> bool:
-    """
-    Ensures YAML's MIME type has a default XDG app, falling back to whatever app is currently set for 'text/plain'
-
-    Returns `True` if a default app is now associated, `False` if setting the default failed
-    """
-    yaml_mime = "application/yaml"
-    text_mime = "text/plain"
-
-    if xdg_query_default(yaml_mime):
-        return True
-
-    default_text_app = xdg_query_default(text_mime)
-    if not default_text_app:
-        return False
-
-    return subprocess.call(["xdg-mime", "default", default_text_app, yaml_mime]) == 0
 
 
 def xdg_query_default(mimetype: str) -> str:

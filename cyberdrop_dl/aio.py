@@ -139,7 +139,12 @@ async def peek_first[T](async_iterable: AsyncIterable[T], /) -> tuple[T, AsyncGe
     async_iterator = aiter(async_iterable)
     first = await next(async_iterator)
 
-    return first, chain(chain.yield_this(first), async_iterator)
+    async def _replayed() -> AsyncGenerator[T]:
+        yield first
+        async for item in async_iterator:
+            yield item
+
+    return first, _replayed()
 
 
 @dataclasses.dataclass(frozen=True, slots=True, eq=False)
