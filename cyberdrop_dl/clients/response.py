@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import dataclasses
-import datetime
+import datetime as dt
 import json
 from abc import ABC, abstractmethod
 from enum import StrEnum
@@ -87,10 +87,10 @@ class AbstractResponse(ABC, Generic[_ResponseT]):
     _lock: asyncio.Lock = dataclasses.field(init=False, compare=False, default_factory=asyncio.Lock)
     _serialized: bool = False
     _fully_serialized: bool = False
-    created_at: datetime.datetime = dataclasses.field(
+    created_at: dt.datetime = dataclasses.field(
         init=False,
         compare=False,
-        default_factory=lambda: datetime.datetime.now(datetime.UTC).replace(microsecond=0),
+        default_factory=lambda: dt.datetime.now(dt.UTC).replace(microsecond=0),
     )
 
     def __post_init__(self) -> None: ...
@@ -340,7 +340,7 @@ class _WreqResponse(AbstractResponse[wreq.Response]):
 
     @override
     async def _read(self) -> bytes:
-        return await self._resp.bytes()
+        return (await self._resp.bytes()).tobytes()
 
     @override
     async def _read_text(self, encoding: str | None = None) -> str:
@@ -362,7 +362,9 @@ class _WreqResponse(AbstractResponse[wreq.Response]):
     @classmethod
     def create(cls, resp: wreq.Response, /) -> Self:
         headers = CIMultiDictProxy(
-            CIMultiDict(((name.decode("utf-8"), value.decode("utf-8")) for name, value in resp.headers))
+            CIMultiDict(
+                ((name.tobytes().decode("utf-8"), value.tobytes().decode("utf-8")) for name, value in resp.headers)
+            )
         )
         url = AbsoluteHttpURL(resp.url, encoded="%" in resp.url)
         content_type, location = _parse_headers(url, headers)

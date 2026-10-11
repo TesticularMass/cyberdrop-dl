@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import random
 import string
 from typing import TYPE_CHECKING, ClassVar
@@ -85,7 +85,7 @@ class DoodStreamCrawler(Crawler):
 
         text = await self.request_text(api_url.with_host(host), impersonate=True)
         random_padding = "".join(random.choice(TOKEN_CHARS) for _ in range(10))
-        expire = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
+        expire = int(dt.datetime.now(dt.UTC).timestamp() * 1000)
         download_url = self.parse_url(text + random_padding)
         return download_url.with_query(token=token, expiry=expire)
 

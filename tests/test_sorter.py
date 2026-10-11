@@ -1,5 +1,5 @@
 import base64
-import datetime
+import datetime as dt
 import itertools
 import shutil
 import zipfile
@@ -14,7 +14,7 @@ from tests.test_archives import _CONTENT, _PASSWORD, _ZIPCRYPTO_B64
 
 DOWNLOADS = Path("/mnt/home/user/downloads/cdl/")
 SORT_DIR = DOWNLOADS.parent / "cdl_sorted"
-MTIME = datetime.datetime(2023, 7, 14, 12, 34, 56, tzinfo=datetime.UTC).timestamp()
+MTIME = dt.datetime(2023, 7, 14, 12, 34, 56, tzinfo=dt.UTC).timestamp()
 
 
 @pytest.mark.parametrize(

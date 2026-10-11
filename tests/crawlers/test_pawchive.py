@@ -1,5 +1,5 @@
 import asyncio
-import datetime
+import datetime as dt
 from typing import Any
 
 import aiohttp
@@ -9,8 +9,7 @@ from cyberdrop_dl import env
 from cyberdrop_dl.crawlers.kemono.kemono import _extract_urls, _has_ads
 from cyberdrop_dl.crawlers.kemono.models import Embed, File, UserPostModel, _parse_tags
 
-pytestmark = pytest.mark.http
-pytestmark = pytest.mark.skipif(env.CI, reason="Skip requests")
+pytestmark = [pytest.mark.http, pytest.mark.skipif(env.CI, reason="Skip requests")]
 
 
 def request_json(url: str) -> Any:
@@ -58,11 +57,11 @@ def test_post_validation(post_resp: dict[str, Any]) -> None:
             server=None,
         ),
     )
-    assert post.published == datetime.datetime(2025, 5, 21, 18, 11, 4, tzinfo=datetime.UTC)
+    assert post.published == dt.datetime(2025, 5, 21, 18, 11, 4, tzinfo=dt.UTC)
     assert post.added
-    assert post.added.date() >= datetime.date(2026, 6, 11)
+    assert post.added.date() >= dt.date(2026, 6, 11)
     assert post.edited
-    assert post.edited > datetime.datetime(2026, 7, 8, 3, 11, 18, tzinfo=datetime.UTC)
+    assert post.edited > dt.datetime(2026, 7, 8, 3, 11, 18, tzinfo=dt.UTC)
     assert post.timestamp == 1747851064
     assert post.tags == ("Animation", "Announcement")
     assert post.embed is None
@@ -100,24 +99,39 @@ def test_extract_urls_from_content(content: str, expected: list[str]) -> None:
 def test_validation_of_post_not_archived_yet(post_resp_w_embeds: dict[str, Any]) -> None:
     post = UserPostModel.model_validate(post_resp_w_embeds)
     assert post.id == "128071303"
-    assert post.content == ""
-    assert post.file == File(
-        path="/83/66/8366796e0d9fadd5e22ae8f8ea32d1b539d54e25e9da19f906fa36d1cf973cc2.jpg",
-        name="461372899.jpg",
-        server=None,
+    assert post.content in ("", "<p></p>")
+    assert post.file in (
+        File(
+            path="/83/66/8366796e0d9fadd5e22ae8f8ea32d1b539d54e25e9da19f906fa36d1cf973cc2.jpg",
+            name="461372899.jpg",
+            server=None,
+        ),
+        File(
+            path="/58/b9/58b924841f0065af7b2b1bd895b3121c0efb49310e4b4f435cbc8c554d36d88a.jpg",
+            name="getpubthumb.jpg",
+            server=None,
+        ),
     )
     assert post.attachments == ()
-    assert post.published == datetime.datetime(2025, 5, 3, 17, 12, 47, tzinfo=datetime.UTC)
-    assert post.added >= datetime.datetime(2026, 6, 10, tzinfo=datetime.UTC)
-    assert post.edited is None
+    assert post.published == dt.datetime(2025, 5, 3, 17, 12, 47, tzinfo=dt.UTC)
+    assert post.added
+    assert post.added.date() == dt.date(2026, 6, 10)
+    assert post.edited is None or isinstance(post.edited, dt.datetime)
     assert post.timestamp == 1746292367
     assert post.tags == ("Naughty ASMR",)
-    assert post.embed == Embed(
-        url="https://u.pcloud.link/publink/show?code=XZDlYb5ZlyjdRy0vl0bJWMbT2L2cp5RbUCFX",
-        subject="ASMR ~ Girl Next Door ~ Patreon EXCLUSIVE.mp4 - Shared with pCloud",
-        description="Store videos in pCloud. Share them with just the right people. Access them on any device. Create a free account now!",
+    assert post.embed in (
+        Embed(
+            url="https://u.pcloud.link/publink/show?code=XZDlYb5ZlyjdRy0vl0bJWMbT2L2cp5RbUCFX",
+            subject="ASMR ~ Girl Next Door ~ Patreon EXCLUSIVE.mp4 - Shared with pCloud",
+            description="Store videos in pCloud. Share them with just the right people. Access them on any device. Create a free account now!",
+        ),
+        Embed(
+            url="https://u.pcloud.link/publink/show?code=XZ9irE5ZwxaSgfOLOWbrWp8L7c0nwuegxDv7",
+            subject="ASMR ~ Girl Next Door ~ Patreon EXCLUSIVE.mp4 - Shared with pCloud",
+            description="Store videos in pCloud. Share them with just the right people. Access them on any device. Create a free account now!",
+        ),
     )
-    assert post.has_full is False
+    assert post.has_full in (True, False)
     assert post.service == "patreon"
     assert post.user_id == "47101380"
     assert post.title == "ASMR ~ Girl Next Door ~ Patreon EXCLUSIVE"

@@ -33,7 +33,7 @@ from cyberdrop_dl.utils.dataclass import ConfigDataclass, DictDataclass, frozen
 from cyberdrop_dl.utils.errors import error_handling_context
 
 if TYPE_CHECKING:
-    import datetime
+    import datetime as dt
     import http.cookies
     from collections.abc import (
         AsyncGenerator,
@@ -601,7 +601,7 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
 
         if thumbnail and self.config.filters.files.thumbnails:
             with self.catch_errors(thumbnail):
-                ext = await self._thumb_ext(thumbnail)
+                ext = await self.sniff_ext(thumbnail)
                 thumb_name = f"{Path(media_item.filename).stem}_thumb{ext}"
                 filename, _ = self.get_filename_and_ext(thumb_name)
                 await self.handle_file(
@@ -613,7 +613,7 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
                     frag="thumbnail",
                 )
 
-    async def _thumb_ext(self, thumbnail: AbsoluteHttpURL) -> str:
+    async def sniff_ext(self, thumbnail: AbsoluteHttpURL) -> str:
         try:
             _, ext = self.get_filename_and_ext(thumbnail.name)
         except NoExtensionError:
@@ -817,7 +817,7 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
         self,
         title: str | None = None,
         id: str | None = None,  # noqa: A002
-        date: datetime.datetime | datetime.date | float | None = None,
+        date: dt.datetime | dt.date | float | None = None,
         /,
     ) -> str:
         if not self.separate_posts:

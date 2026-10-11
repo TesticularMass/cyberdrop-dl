@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import base64
 import dataclasses
-import datetime
+import datetime as dt
 import re
 from abc import abstractmethod
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, final
@@ -73,7 +73,7 @@ class MessageBoardSelectors:
 @dataclasses.dataclass(frozen=True, slots=True, order=True)
 class ForumPost:
     id: int
-    date: datetime.datetime | None
+    date: dt.datetime | None
     article: Tag = dataclasses.field(compare=False)
     content: Tag = dataclasses.field(compare=False)
 
@@ -85,7 +85,7 @@ class ForumPost:
         for trash in selectors.content_trash:
             css.decompose(article, trash)
         try:
-            date = datetime.datetime.fromisoformat(css.select(article, *selectors.date))
+            date = dt.datetime.fromisoformat(css.select(article, *selectors.date))
         except Exception:  # noqa: BLE001
             date = None
 
@@ -107,7 +107,7 @@ class ForumPostProtocol(Protocol):
     @property
     def id(self) -> int: ...
     @property
-    def date(self) -> datetime.datetime | None: ...
+    def date(self) -> dt.datetime | None: ...
     @property
     def article(self) -> Tag: ...
     @property
