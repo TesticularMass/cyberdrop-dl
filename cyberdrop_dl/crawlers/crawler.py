@@ -1300,7 +1300,7 @@ def compose_title(  # noqa: PLR0913
         title = f"{title} ({domain})"
 
     # Remove double spaces
-    return " ".join(title.split(" "))
+    return " ".join(title.split())
 
 
 def compose_ep_name(season: int | None, ep: int | None, name: str | None) -> str:

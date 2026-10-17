@@ -8,6 +8,7 @@ import json
 import logging
 import time
 from typing import TYPE_CHECKING, Any, Protocol, Self, TypedDict, cast, overload
+from weakref import WeakKeyDictionary
 
 from cyberdrop_dl import __version__
 from cyberdrop_dl.constants import MISSING
@@ -49,7 +50,7 @@ def _load_cache(content: str) -> dict[str, Any]:
 @contextlib.contextmanager
 def cache_context(cache_file: Path, cache: dict[str, Any]) -> Generator[None]:
     try:
-        content = cache_file.read_text()
+        content = cache_file.read_text(encoding="utf8")
     except FileNotFoundError:
         cache_file.parent.mkdir(exist_ok=True, parents=True)
         cache_file.touch()
@@ -73,7 +74,7 @@ def _serialize_cache(cache: dict[str, Any]) -> str:
 
 def _write_atomic(cache_file: Path, content: str) -> None:
     tmp_file = cache_file.with_suffix(".tmp")
-    tmp_file.write_text(content)
+    tmp_file.write_text(content, encoding="utf8")
     _ = tmp_file.replace(cache_file)
 
 
@@ -220,7 +221,7 @@ class _CachedMethod[T, R]:
         self.name: str = fn.__name__
         self.key: tuple[str, ...] | str = key or fn.__name__
         self.ttl: float | None = ttl
-        self._cached_fn: CachedAsyncFunc[R] | None = None
+        self._cached_fns: WeakKeyDictionary[object, CachedAsyncFunc[R]] = WeakKeyDictionary()
 
     def _get_cache(self, inst: T) -> TTLCacheAdapter[R]:  # pyright: ignore[reportUnusedParameter]
         raise NotImplementedError
@@ -235,13 +236,15 @@ class _CachedMethod[T, R]:
         if inst is None:
             return self
 
-        if self._cached_fn is None:
+        cached = self._cached_fns.get(inst)
+        if cached is None:
 
             async def call_method() -> R:
                 return await self.wrapped(inst)
 
-            self._cached_fn = cached_fn(call_method, self._get_cache(inst), key=self.key, ttl=self.ttl)
-        return self._cached_fn
+            cached = cached_fn(call_method, self._get_cache(inst), key=self.key, ttl=self.ttl)
+            self._cached_fns[inst] = cached
+        return cached
 
 
 class _InMemoryCachedMethod[R](_CachedMethod[object, R]):

@@ -160,7 +160,7 @@ def _exc_group_context() -> Generator[None]:
         raise CDLAppError(msg, str(e)) from e.with_traceback(None)
 
 
-_MEGA_HTTP_CODES = Final = {
+_MEGA_HTTP_CODES = {
     -4: HTTPStatus.TOO_MANY_REQUESTS,
     -8: HTTPStatus.GONE,
     -9: HTTPStatus.GONE,

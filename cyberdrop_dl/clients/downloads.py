@@ -130,7 +130,7 @@ class DownloadClient:
                 return downloaded
 
         hook = self._make_hook(media_item)
-        if resume_point:
+        if resp.status == HTTPStatus.PARTIAL_CONTENT and resume_point:
             hook.advance(resume_point)
 
         with hook:
@@ -265,7 +265,7 @@ class DownloadClient:
                     logger.info(f"Found {downloaded_filename} locally, trying to resume")
                     assert media_item.size
                     size = await aio.get_size(media_item.partial_file)
-                    if size is not None and size >= media_item.size:
+                    if size is not None and size > media_item.size:
                         logger.info(f"Deleting partial file {media_item.partial_file}. Size is out of bound")
                         await aio.unlink(media_item.partial_file)
 
@@ -304,6 +304,9 @@ class DownloadClient:
                 break
 
             media_item.filename = downloaded_filename
+            media_item.path = media_item.download_folder / media_item.filename
+            part_suffix = media_item.path.suffix + constants.TempExt.PART
+            media_item.partial_file = media_item.path.with_suffix(part_suffix)
         media_item.download_filename = media_item.path.name
         await self.manager.database.history.add_download_filename(domain, media_item)
         return proceed, skip
@@ -334,7 +337,7 @@ def _check_filesize_limits(media: MediaItem, config: Config) -> bool:
     if media.ext in FileExt.VIDEO:
         return not limits.video or media.size in limits.video
     if media.ext in FileExt.AUDIO:
-        return not limits.image or media.size in limits.image
+        return not limits.audio or media.size in limits.audio
 
     return not limits.non_media or media.size in limits.non_media
 

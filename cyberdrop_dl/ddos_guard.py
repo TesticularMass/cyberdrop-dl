@@ -109,7 +109,11 @@ class CloudFlareTurnstile(DDosGuard):
     SELECTOR = ", ".join(
         (
             "captchawrapper",
+            "#captchawrapper",
+            ".captchawrapper",
             "cf-turnstile",
+            "#cf-turnstile",
+            ".cf-turnstile",
             "#cf-challenge-running",
             "#cf-please-wait",
             "iframe[id^='cf-chl-']",

@@ -81,6 +81,11 @@ class Czkawka:
 
         with self._tui.new_file(file):
             try:
+                if not await aio.is_file(original):
+                    logger.warning(
+                        f"Original file '{original}' ({hash_string}) not found on disk, skipping deletion of '{file}'"
+                    )
+                    return
                 deleted = await _delete_file(file, to_trash=self.use_trash_bin)
             except OSError as e:
                 logger.error(f"Unable to remove '{file}' ({hash_string}): {e!r}")

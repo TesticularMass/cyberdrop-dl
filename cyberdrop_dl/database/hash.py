@@ -45,13 +45,24 @@ class HashTable(Table, name="hash"):
             await db_conn.commit()
 
     async def get_file_hash_exists(self, path: Path | str, hash_type: str) -> str | None:
-        query = "SELECT hash FROM hash WHERE folder= ? AND download_filename= ? AND hash_type= ? AND hash IS NOT NULL LIMIT 1;"
+        query = """
+        SELECT hash.hash FROM hash
+        LEFT JOIN files ON hash.folder = files.folder AND hash.download_filename = files.download_filename
+        WHERE hash.folder = ? AND hash.download_filename = ? AND hash.hash_type = ? AND hash.hash IS NOT NULL
+        AND (files.file_size IS NULL OR files.file_size = ?)
+        LIMIT 1;
+        """
         path = self.cwd / path
         folder = str(path.parent)
         filename = path.name
+        try:
+            stat_res = await aio.stat(path)
+            current_size: int | None = stat_res.st_size
+        except OSError:
+            current_size = None
 
         async with self.db.reader() as db_conn:
-            cursor = await db_conn.execute(query, (folder, filename, hash_type))
+            cursor = await db_conn.execute(query, (folder, filename, hash_type, current_size))
             if row := await cursor.fetchone():
                 return row["hash"]
 
@@ -74,7 +85,9 @@ class HashTable(Table, name="hash"):
             WHERE
               hash.hash = ?
               AND files.file_size = ?
-              AND hash.hash_type = ?;
+              AND hash.hash_type = ?
+            ORDER BY
+              files.date ASC;
             """
 
         else:
@@ -89,7 +102,9 @@ class HashTable(Table, name="hash"):
             WHERE
               hash.hash = ?
               AND files.file_size = ?
-              AND hash.hash_type = ?;
+              AND hash.hash_type = ?
+            ORDER BY
+              files.date ASC;
             """
 
         async with self.db.reader() as db_conn:

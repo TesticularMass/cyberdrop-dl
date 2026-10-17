@@ -211,7 +211,7 @@ def _load_yaml(file: Path) -> dict[str, Any]:
     import yaml
 
     try:
-        return yaml.safe_load(file.read_text()) or {}
+        return yaml.safe_load(file.read_text(encoding="utf8")) or {}
     except yaml.YAMLError as e:
         raise CDLConfigRuntimeErrorsGroup("Invalid YAML file", (InvalidYamlError(file, e),)) from None
 

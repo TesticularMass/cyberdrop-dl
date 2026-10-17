@@ -188,12 +188,16 @@ class HLSKey:
     @classmethod
     def parse(cls, seg: m3u8.model.Segment | m3u8.model.InitializationSection) -> Self | None:
         if isinstance(seg, m3u8.model.Segment) and seg.key and seg.key.method and seg.key.method != "NONE":
-            assert seg.key.iv
-            assert seg.key.uri
+            key_uri = seg.key.absolute_uri or seg.key.uri
+            assert key_uri
+            if seg.key.iv:
+                iv = bytes.fromhex(seg.key.iv.removeprefix("0x"))
+            else:
+                iv = (seg.media_sequence or 0).to_bytes(16, "big")
             return cls(
                 method=Encryption(seg.key.method),
-                iv=bytes.fromhex(seg.key.iv.removeprefix("0x")),
-                uri=parse_url(seg.key.uri, trim=False),
+                iv=iv,
+                uri=parse_url(key_uri, trim=False),
             )
 
 
@@ -207,10 +211,10 @@ def _validate_keys(stream: M3U8) -> None:
             raise DownloadError(
                 "Encrypted", f"M3U8 playlist {stream.source} has an unsupported encryption algorithm: \n{key!s}"
             )
-        if not key.iv or not key.uri:
+        if not (key.uri or getattr(key, "absolute_uri", None)):
             raise DownloadError(
                 "Encrypted",
-                f"M3U8 playlist {stream.source} is encrypted but we have no IV to decrypted it: \n{key!s}",
+                f"M3U8 playlist {stream.source} is encrypted but has no key URI: \n{key!s}",
             )
 
 

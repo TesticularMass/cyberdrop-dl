@@ -82,11 +82,11 @@ class Capacity:
         return self.waiting > max((self.limit * 1.2), self.limit + 10)
 
     async def _wait(self) -> None:
-        if self.limit is None or self.waiting <= self.limit:
+        if self.limit is None:
             return
 
         async with self.condition:
-            await self.condition.wait()
+            await self.condition.wait_for(lambda: self.limit is not None and self.waiting <= self.limit)
 
     async def wait(self, domain: str) -> None:
         overloaded = self.overloaded
@@ -200,9 +200,9 @@ class Downloader:
         self.capacity.waiting += 1
         async with self.lock(media_item.real_url):
             self._processed_items.add(media_item.db_path)
-            async with self.capacity.condition:
-                self.capacity.condition.notify()
             self.capacity.waiting -= 1
+            async with self.capacity.condition:
+                self.capacity.condition.notify_all()
             yield
 
     async def __download_file(self, media_item: MediaItem) -> bool | None:
@@ -347,10 +347,11 @@ class Downloader:
 
     async def _compute_hashes(self, media_item: MediaItem) -> None:
         # TODO: move this to the scrape_mapper as a post-download task
-        if self.config.hashing.mode is not constants.HashMode.IN_PLACE:
+        if self.config.hashing.mode is constants.HashMode.OFF:
             return
         try:
-            await compute_in_place_hash(self.manager.hasher, media_item)
+            if self.config.hashing.mode is constants.HashMode.IN_PLACE:
+                await compute_in_place_hash(self.manager.hasher, media_item)
         except Exception:
             logger.exception("Unable to compute hashes of '%s'", media_item.path)
         finally:
