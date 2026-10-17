@@ -4,32 +4,96 @@
 
 _Bulk asynchronous downloader for multiple file hosts_
 
-[![PyPI - Version](https://img.shields.io/pypi/v/cyberdrop-dl-patched)](https://pypi.org/project/cyberdrop-dl-patched/)
-[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/cyberdrop-dl-patched)](https://pypi.org/project/cyberdrop-dl-patched/)
-[![Docs](https://img.shields.io/badge/docs-wiki-blue?link=https%3A%2F%2Fscript-ware.gitbook.io%2Fcyberdrop-dl)](https://script-ware.gitbook.io/cyberdrop-dl)
-[![GitHub License](https://img.shields.io/github/license/Cyberdrop-DL/cyberdrop-dl)](https://github.com/Cyberdrop-DL/cyberdrop-dl/blob/main/LICENSE)
-[![linting - Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/Cyberdrop-DL/cyberdrop-dl/actions/workflows/ruff.yaml)
-[![tests](https://github.com/Cyberdrop-DL/cyberdrop-dl/actions/workflows/ci.yaml/badge.svg?event=push)](https://github.com/Cyberdrop-DL/cyberdrop-dl/actions/workflows/ci.yaml)
-[![PyPI - Downloads](https://img.shields.io/pypi/dm/cyberdrop-dl-patched)](https://pypistats.org/packages/cyberdrop-dl-patched)
+[![License](https://img.shields.io/github/license/TesticularMass/cyberdrop-dl)](LICENSE)
+[![linting - Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/TesticularMass/cyberdrop-dl/actions/workflows/ruff.yaml)
+[![tests](https://github.com/TesticularMass/cyberdrop-dl/actions/workflows/ci.yaml/badge.svg?event=push)](https://github.com/TesticularMass/cyberdrop-dl/actions/workflows/ci.yaml)
 
-[![Discord](https://discordapp.com/api/guilds/1070206871564197908/widget.png?style=banner2)](https://discord.com/invite/P5nsbKErwy)
-
-Brand new and improved! `cyberdrop-dl` now has an updated paint job, fantastic new look. It's now easier to use than ever before!
-
-![Cyberdrop-DL TUI Preview](https://raw.githubusercontent.com/Cyberdrop-DL/cyberdrop-dl/refs/heads/main/docs/assets/cyberdrop-dl_tui_preview.png)
+![Cyberdrop-DL TUI Preview](docs/assets/cyberdrop-dl_tui_preview.png)
 
 </div>
 
-## Supported Sites
-
-See the [list of supported sites](https://script-ware.gitbook.io/cyberdrop-dl/reference/supported-websites) on the official wiki
+This repository is a fork of [Cyberdrop-DL/cyberdrop-dl](https://github.com/Cyberdrop-DL/cyberdrop-dl),
+with additional fixes and optional Playwright browser support for handling site challenges.
+Use the source installation below to run this fork. The `cyberdrop-dl-patched` package on PyPI and
+upstream release installers distribute the upstream project.
 
 ## Getting Started
 
-Follow the [getting-started guide](https://script-ware.gitbook.io/cyberdrop-dl/getting-started) for instructions on how to install and configure Cyberdrop-DL
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then clone and run this repository:
 
-## Contributing
+```shell
+git clone https://github.com/TesticularMass/cyberdrop-dl.git
+cd cyberdrop-dl
+uv sync --locked --all-extras
+uv run cyberdrop-dl
+```
 
-If there is a feature you want, you've discovered a bug, or if you have other general feedback, please create an issue for it!
+The project requires Python 3.12 or newer; the checkout selects Python 3.13 through `.python-version`.
+`uv` can install the required Python version automatically.
 
-See [CONTRIBUTING.md](https://github.com/Cyberdrop-DL/cyberdrop-dl/blob/main/CONTRIBUTING.md) for instructions on [opening an Issue](https://github.com/Cyberdrop-DL/cyberdrop-dl/blob/main/CONTRIBUTING.md#submitting-an-issue). If you want to submit code to the project, follow the [guidelines on how to contribute](https://github.com/Cyberdrop-DL/cyberdrop-dl/blob/main/CONTRIBUTING.md#submitting-a-pull-request-pr).
+In the interactive interface, choose **Edit URLs** to add download links, then choose **Download**.
+You can also put one URL per line in `URLs.txt` and download directly:
+
+```shell
+uv run cyberdrop-dl download --input-file URLs.txt
+```
+
+View available commands and download options with:
+
+```shell
+uv run cyberdrop-dl --help
+uv run cyberdrop-dl download --help
+```
+
+See the [configuration guide](docs/reference/config/README.md) and
+[application data locations](docs/getting-started/README.md#appdata-and-configuration) for settings,
+download history, and logs.
+
+## Optional Playwright Browser Support
+
+Install Chromium for Playwright:
+
+```shell
+uv run python -m playwright install chromium
+```
+
+Enable browser support in your YAML configuration:
+
+```yaml
+network:
+  playwright: true
+  playwright_visible: false
+```
+
+Set `playwright_visible: true` to show the browser window. Both options default to `false`.
+Browser support can help with site challenges, but does not guarantee that every challenge will clear.
+To use a configuration file in the current directory:
+
+```shell
+uv run cyberdrop-dl --config-file config.yaml
+```
+
+## Documentation
+
+- [Documentation contents](docs/SUMMARY.md)
+- [Supported sites](docs/reference/supported-websites.md)
+- [Command-line arguments](docs/reference/cli-arguments.md)
+- [Frequently asked questions](docs/frequently-asked-questions.md)
+- [Changelog](CHANGELOG.md)
+- [Upstream wiki](https://script-ware.gitbook.io/cyberdrop-dl)
+
+## Development and Contributing
+
+The source installation above includes the development dependencies. Install the hooks and run the tests with:
+
+```shell
+uv run prek install
+uv run pytest
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for code style, crawler development, and upstream contribution guidance.
+Report problems specific to this fork in [this repository's issue tracker](https://github.com/TesticularMass/cyberdrop-dl/issues).
+
+## License
+
+[GNU General Public License v3.0](LICENSE).
