@@ -146,6 +146,43 @@ class MuxVideo:
 
 
 @final
+@dataclasses.dataclass(slots=True, kw_only=True, frozen=True)
+class FinishedDownload:
+    # Simplified version of media item w no metadata, bounded callables and some attributes removed, to reduce memory usage
+    url: AbsoluteHttpURL
+    referer: AbsoluteHttpURL
+    original_filename: str
+    ext: str
+    size: int
+    xxhash: str | None
+    path: Path
+    id: tuple[str, ...]
+
+    def __hash__(self) -> int:
+        return hash(self.id)
+
+    @property
+    def is_segment(self) -> Literal[False]:
+        return False
+
+    @classmethod
+    def from_item(cls, item: MediaItem) -> Self:
+        assert item.size is not None
+        assert item.is_segment is False
+        return cls(
+            url=item.url,
+            referer=item.referer,
+            original_filename=item.original_filename,
+            ext=item.ext,
+            size=item.size,
+            xxhash=item.xxhash,
+            path=item.path,
+            id=item.id,
+        )
+
+
+@final
+@signature.dataclass_repr("url", "id", "debrid_url", "uploaded_at_date")
 @dataclasses.dataclass(slots=True, kw_only=True, repr=False)
 class MediaItem:
     url: AbsoluteHttpURL
@@ -197,8 +234,6 @@ class MediaItem:
             self.uploaded_at_date = dt.datetime.fromtimestamp(self.uploaded_at, tz=dt.UTC)
 
         self.base64_id = base64.urlsafe_b64encode("".join(self.id).encode()).decode().rstrip("=")
-
-    __repr__ = signature.simple_repr("url", "id", "debrid_url", "uploaded_at_date")
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -258,6 +293,7 @@ class RetryInfo:
 
 
 @final
+@signature.dataclass_repr("url", "folders", "uploaded_at")
 @dataclasses.dataclass(kw_only=True, slots=True, repr=False)
 class ScrapeItem:
     url: AbsoluteHttpURL
@@ -278,8 +314,6 @@ class ScrapeItem:
     _uploaded_at: int | None = None
     retry_info: RetryInfo | None = None
     markers: list[Any] = dataclasses.field(default_factory=list)
-
-    __repr__ = signature.simple_repr("url", "folders", "uploaded_at")
 
     @classmethod
     def from_url(cls, url: yarl.URL | str) -> Self:

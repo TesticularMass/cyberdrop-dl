@@ -10,7 +10,7 @@ from cyberdrop_dl.crawlers.crawler import Crawler, SupportedDomains, SupportedPa
 from cyberdrop_dl.crawlers.twitter.api import FXTwitterAPI, TwitterAPI, TwitterGQLSearchFilter
 from cyberdrop_dl.exceptions import ScrapeError
 from cyberdrop_dl.mediaprops import Resolution
-from cyberdrop_dl.signature import simple_repr
+from cyberdrop_dl.signature import dataclass_repr
 from cyberdrop_dl.url_objects import AbsoluteHttpURL, MediaItem
 from cyberdrop_dl.utils.errors import error_handling_wrapper
 
@@ -83,6 +83,7 @@ class TwimgCrawler(Crawler):
     def _prepare_media_item(self, media_item: MediaItem) -> None:
         if media_item.referer.path == media_item.url.path and media_item.parents:
             media_item.referer = media_item.parents[0]
+
         media_item.headers["Referer"] = "https://x.com/"
 
 
@@ -207,7 +208,7 @@ class TwitterCrawler(Crawler):
             ),
         )
 
-        with self.catch_errors((self.PRIMARY_URL / "search").with_query(api_url.query)):
+        async with self.catch_errors((self.PRIMARY_URL / "search").with_query(api_url.query)):
             self.log.info(
                 "Starting manual search for posts of %s (feed: '%s', raw_query: '%s')",
                 user,
@@ -290,6 +291,7 @@ class TwitterCrawler(Crawler):
 
 
 @final
+@dataclass_repr("since", "until", "oldest_tweet")
 class TweetsFilterer:
     def __init__(self, *, since: int | None = None, until: int | None = None) -> None:
         self.since = since
@@ -297,8 +299,6 @@ class TweetsFilterer:
         self.oldest_tweet: Tweet | None = None
         self.seen: set[str] = set()
         self.log = TwitterCrawler.get_logger()
-
-    __repr__ = simple_repr("since", "until", "oldest_tweet")
 
     def should_skip(self, tweet: Tweet) -> str | bool:
         if tweet.id in self.seen:

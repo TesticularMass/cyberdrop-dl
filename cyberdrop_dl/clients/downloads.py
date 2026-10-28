@@ -15,7 +15,7 @@ from cyberdrop_dl.clients import etag
 from cyberdrop_dl.clients.http import JSON_CHECK, check_http_status
 from cyberdrop_dl.constants import USE_RETRY_PATH, FileExt
 from cyberdrop_dl.exceptions import DownloadError, InvalidContentTypeError, SlowDownloadError
-from cyberdrop_dl.signature import simple_repr
+from cyberdrop_dl.signature import dataclass_repr
 from cyberdrop_dl.url_objects import ByteRange
 from cyberdrop_dl.utils import dates, enter_context
 
@@ -40,6 +40,7 @@ _SLOW_DOWNLOAD_PERIOD: int = 10  # seconds
 
 
 @final
+@dataclass_repr("config", "speed_limiter", "chunk_size")
 class DownloadClient:
     """Low level class that performs the actual HTTP download operations."""
 
@@ -59,8 +60,6 @@ class DownloadClient:
                 self.chunk_size,
                 upper_limit,
             )
-
-    __repr__ = simple_repr("config", "speed_limiter", "chunk_size")
 
     @property
     def http_client(self) -> HTTPClient:
@@ -240,11 +239,11 @@ class DownloadClient:
 
     async def get_final_file_info(self, media_item: MediaItem, domain: str) -> tuple[bool, bool]:  # noqa: C901, PLR0912, PLR0915
         """Complicated checker for if a file already exists, and was already downloaded."""
+        # TODO: This black magic needs a refactor + tests
         if not media_item.path:
             media_item.path = media_item.download_folder / media_item.filename
 
-        part_suffix = media_item.path.suffix + constants.TempExt.PART
-        media_item.partial_file = media_item.path.with_suffix(part_suffix)
+        media_item.partial_file = constants.TempExt.PART.append_to(media_item.path)
 
         expected_size = media_item.size
         proceed = True
@@ -324,27 +323,29 @@ class DownloadClient:
 
             media_item.filename = downloaded_filename
             media_item.path = media_item.download_folder / media_item.filename
-            part_suffix = media_item.path.suffix + constants.TempExt.PART
-            media_item.partial_file = media_item.path.with_suffix(part_suffix)
+            media_item.partial_file = constants.TempExt.PART.append_to(media_item.path)
+
         media_item.download_filename = media_item.path.name
         await self.manager.database.history.add_download_filename(domain, media_item)
         return proceed, skip
 
-    async def iterate_filename(self, complete_file: Path, media_item: MediaItem) -> tuple[Path, Path]:
+    async def iterate_filename(self, file: Path, media_item: MediaItem) -> tuple[Path, Path]:
         """Iterates the filename until it is unique."""
-        part_suffix = complete_file.suffix + constants.TempExt.PART
-        partial_file = complete_file.with_suffix(part_suffix)
+
+        partial_file = constants.TempExt.PART.append_to(file)
+
         for iteration in itertools.count(1):
-            filename = f"{complete_file.stem} ({iteration}){complete_file.suffix}"
-            temp_complete_file = media_item.download_folder / filename
-            if not await aio.exists(
-                temp_complete_file
-            ) and not await self.manager.database.history.check_filename_exists(filename):
+            filename = f"{file.stem} ({iteration}){file.suffix}"
+            temp_file = media_item.download_folder / filename
+            if not any(
+                await aio.gather(aio.exists(temp_file), self.manager.database.history.check_filename_exists(filename))
+            ):
                 media_item.filename = filename
-                complete_file = media_item.download_folder / media_item.filename
-                partial_file = complete_file.with_suffix(part_suffix)
+                file = media_item.download_folder / media_item.filename
+                partial_file = constants.TempExt.PART.append_to(file)
                 break
-        return complete_file, partial_file
+
+        return file, partial_file
 
 
 def _check_filesize_limits(media: MediaItem, config: Config) -> bool:
@@ -518,7 +519,6 @@ def resolve_download_dir(download_folder: Path, config: Config) -> Path:
     if config.subfolders.create or USE_RETRY_PATH.get():
         return download_folder
 
-    while download_folder.parent != config.download_folder:
-        download_folder = download_folder.parent
-
-    return download_folder
+    # Only keep the fist subfolder (if any)
+    subfolders = download_folder.relative_to(config.download_folder).parts
+    return config.download_folder.joinpath(*subfolders[:1])

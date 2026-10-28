@@ -1,9 +1,19 @@
+import contextlib
+from http import HTTPStatus
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
 import pytest
 from multidict import CIMultiDict
 
-from cyberdrop_dl.clients.downloads import DownloadClient, _check_content_type, _get_content_type
+from cyberdrop_dl.clients import downloads
+from cyberdrop_dl.clients.downloads import DownloadClient, _check_content_type, _get_content_type, resolve_download_dir
+from cyberdrop_dl.config import Config
+from cyberdrop_dl.constants import USE_RETRY_PATH
 from cyberdrop_dl.exceptions import InvalidContentTypeError
 from cyberdrop_dl.manager import Manager
+from cyberdrop_dl.utils import enter_context
 
 
 @pytest.mark.parametrize(
@@ -26,6 +36,37 @@ def test_chunk_size_is_never_greater_that_speed_limit(manager: Manager, limit: i
     assert client.chunk_size == min(limit or max_expected, max_expected)
 
 
+@pytest.mark.parametrize(
+    ("status", "expected_advances"),
+    [
+        (HTTPStatus.PARTIAL_CONTENT, [512]),
+        # Server ignored the Range header and is resending the whole file
+        (HTTPStatus.OK, []),
+    ],
+)
+async def test_resume_progress_only_advances_on_partial_content(
+    manager: Manager, monkeypatch: pytest.MonkeyPatch, status: HTTPStatus, expected_advances: list[int]
+) -> None:
+    advances: list[int] = []
+
+    class Hook(contextlib.nullcontext[None]):
+        def advance(self, amount: int) -> None:
+            advances.append(amount)
+
+    async def no_op(*_: Any) -> bool:
+        return False
+
+    client = DownloadClient(manager)
+    monkeypatch.setattr(downloads, "_check_response", no_op)
+    monkeypatch.setattr(client, "_make_hook", lambda _: Hook())
+    monkeypatch.setattr(client, "_append_content", no_op)
+    media_item: Any = SimpleNamespace(is_segment=True, path=Path("file.mp4"), size=None)
+    resp: Any = SimpleNamespace(status=status, headers={"Content-Length": "1024"})
+
+    assert await client._process_response(media_item, "example.com", 512, resp)
+    assert advances == expected_advances
+
+
 def test_get_content_type() -> None:
     def get(value: str) -> str:
         content_type = _get_content_type(CIMultiDict({"content-type": value}))
@@ -46,3 +87,47 @@ def test_check_content_type() -> None:
 
 def test_get_content_type_missing_headers() -> None:
     assert _get_content_type({}) is None
+
+
+class TestResolveDownloadDir:
+    @pytest.fixture
+    @staticmethod
+    def config(tmp_path: Path) -> Config:
+        download_folder = tmp_path / "downloads"
+        return Config(download_folder=download_folder)
+
+    def test_returns_download_folder_when_subfolders_enabled(self, config: Config) -> None:
+        download_folder = config.download_folder / "folder1" / "folder2"
+        config.subfolders.create = True
+        result = resolve_download_dir(download_folder, config)
+        assert result == download_folder
+
+    def test_keeps_only_first_subfolder(self, config: Config) -> None:
+        download_folder = config.download_folder / "folder1" / "folder2" / "folder3"
+        config.subfolders.create = False
+        result = resolve_download_dir(download_folder, config)
+        assert result == config.download_folder / "folder1"
+
+    def test_returns_download_root_when_no_subfolders(self, config: Config) -> None:
+        download_folder = config.download_folder
+        result = resolve_download_dir(download_folder, config)
+        assert result == config.download_folder
+
+    def test_returns_download_folder_when_retry_path_enabled(self, config: Config) -> None:
+        download_folder = Path("/not_relative/to/download/dir")
+
+        with enter_context(USE_RETRY_PATH, True):
+            result = resolve_download_dir(download_folder, config)
+
+        assert result == download_folder
+
+    def test_returns_download_folder_when_subfolders_create_is_enabled(self, config: Config) -> None:
+        download_folder = Path("/not_relative/to/download/dir")
+        result = resolve_download_dir(download_folder, config)
+        assert result == download_folder
+
+    def test_raises_error_on_non_relative_path_if_subfolder_create_is_false(self, config: Config) -> None:
+        download_folder = Path("/not_relative/to/download/dir")
+        config.subfolders.create = False
+        with pytest.raises(ValueError, match="is not in the subpath of"):
+            resolve_download_dir(download_folder, config)

@@ -23,6 +23,7 @@ from cyberdrop_dl.crawlers.crawler import Crawler
 from cyberdrop_dl.exceptions import LoginError, MaxChildrenError, ScrapeError
 from cyberdrop_dl.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.utils import b64_pad, css, extr_text, is_blob_or_svg
+from cyberdrop_dl.utils._url import URLDeduper
 from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
@@ -402,7 +403,7 @@ class HTMLMessageBoardCrawler(MessageBoardCrawler, is_abc=True):
             assert getattr(cls, field_name, None), f"Subclass {cls.__name__} must override: {field_name}"
 
     def __post_init__(self) -> None:
-        self.scraped_threads: set[AbsoluteHttpURL] = set()
+        self.scraped_threads: URLDeduper = URLDeduper()
 
     @classmethod
     def is_thumbnail(cls, link: AbsoluteHttpURL) -> bool:
@@ -429,7 +430,6 @@ class HTMLMessageBoardCrawler(MessageBoardCrawler, is_abc=True):
             return
 
         scrape_item.parent_threads.add(thread.url)
-        self.scraped_threads.add(thread.url)
         await self._thread(scrape_item, thread)
 
     async def _thread(self, scrape_item: ScrapeItem, thread: ThreadProtocol) -> None:

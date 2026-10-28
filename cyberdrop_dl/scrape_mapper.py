@@ -28,7 +28,7 @@ from cyberdrop_dl.scrape_source import (
 )
 from cyberdrop_dl.url_objects import AbsoluteHttpURL, ScrapeItem, ScrapeItemType
 from cyberdrop_dl.utils import remove_trailing_slash
-from cyberdrop_dl.utils._url import matches_any_host
+from cyberdrop_dl.utils._url import URLDeduper, matches_any_host
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Generator, Iterator
@@ -117,7 +117,7 @@ class ScrapeMapper:
     _direct_http: DirectHttpFileCrawler = dataclasses.field(init=False)
     _jdownloader: JDownloader = dataclasses.field(init=False)
     _real_debrid: RealDebridCrawler = dataclasses.field(init=False)
-    _seen_urls: set[AbsoluteHttpURL] = dataclasses.field(init=False, default_factory=set, repr=False)
+    _seen_urls: URLDeduper = dataclasses.field(init=False, default_factory=URLDeduper, repr=False)
     _factory: CrawlerFactory = dataclasses.field(init=False)
     _ready: bool = dataclasses.field(init=False, default=False)
     _shutting_down: bool = dataclasses.field(init=False, default=False)
@@ -295,9 +295,9 @@ class ScrapeMapper:
     async def _wait_until_scrape_is_done(self, stats: ScrapeStats) -> None:
         await self.task_mngr.scrape.done.wait()
         self.tui.hide_scrape_panel()
-        stats.url_count.update(
-            (crawler.DOMAIN, count) for crawler in self._factory if (count := len(crawler.scraped_items))
-        )
+        for crawler in self._factory:
+            if count := len(crawler.scraped_urls):
+                stats.url_count[crawler.DOMAIN] = stats.url_count.setdefault(crawler.DOMAIN, 0) + count
 
         # Let GC destroy all crawlers and just keep a reference to the downloaders for the UI
         dl_caps = tuple(crawler.downloader.capacity for crawler in self._factory)
@@ -311,7 +311,7 @@ class ScrapeMapper:
         self._factory.clear()
         self._seen_urls.clear()
         for crawler in self._direct_http, self._real_debrid:
-            crawler.scraped_items.clear()
+            crawler.scraped_urls.clear()
 
     async def run(self, src: URLsSource | RetryScrapeSource | None = None) -> ScrapeStats:
         if self._shutting_down:
@@ -391,7 +391,6 @@ class ScrapeMapper:
         if scrape_item.url in self._seen_urls:
             return False
 
-        self._seen_urls.add(scrape_item.url)
         if _skip_by_config(scrape_item.url, self.manager.config):
             self.tui.files.stats.skipped += 1
             return False
@@ -437,7 +436,7 @@ def register_crawler(
                     raise ValueError(msg)
                 logger.error(msg)
                 continue
-            logger.info("Successfully mapped %s to crawler %s", crawler.PRIMARY_URL, crawler.NAME)
+            logger.info("Successfully mapped %s to crawler %s", crawler.PRIMARY_URL, crawler._generic_base_)
 
         elif other:
             if domain in crawlers_map:
@@ -476,6 +475,11 @@ def _create_generic_crawlers(generics_config: GenericCrawlers) -> Generator[type
         from cyberdrop_dl.crawlers._video import GenericVideoCrawler
 
         yield from create_crawlers(generics_config.video, GenericVideoCrawler)
+
+    if generics_config.patreon:
+        from cyberdrop_dl.crawlers.patreon import PatreonGenericCrawler
+
+        yield from create_crawlers(generics_config.patreon, PatreonGenericCrawler)
 
 
 def _disable_crawlers_by_config(current_crawlers: dict[str, type[Crawler]], *crawlers_to_disable: str) -> None:

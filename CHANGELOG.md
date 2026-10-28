@@ -22,20 +22,35 @@ All notable changes to this project will be documented here. For more details, v
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## UNRELEASED
+## [10.15.0] - UNRELEASED
 
 ### Added
 
+- New `--logs.rotate-date-position` option
+- Support Patreon creators with custom domains. User must define the domains with the new `--crawlers.generic.patreon` option
+- Support direct media URLs (Patreon)
+- Support sub-albums (Lensdump)
+
+## [10.14.0] - 2026-10-27
+
+### Added
+
+- New `--subfolders.group-loose-files` option
+- Lensdump support
 - Support subfolders (Upfile)
 - Support subtitles (VKVideo)
+
+### Changed
+
+- Ignore low config timeouts values during Flaresolverr requests. Always wait at least 1 minute for a response
 
 ### Fixed
 
 - Handle posts with no audio (TikTok)
 - Do not stop entire profile scrape when a single post fails (TikTok)
+- Handle videos with no thumbnails (Kick)
 - Respect `--rate-limit` values higher than 25req/s
-
-### Security
+- Respect `--subfolders.include.domain` for `Loose Files` folders
 
 ## [10.13.0] - 2026-10-24
 

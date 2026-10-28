@@ -41,6 +41,7 @@ crawlers:
     chevereto: []
     discourse: []
     kvs: []
+    patreon: []
     peertube: []
     video: []
     wordpress_html: []
@@ -176,6 +177,7 @@ logs:
   http_traffic: true
   level: DEBUG
   rotate: false
+  rotate_date_position: suffix
 max_children:
   album: 0
   forum: 0
@@ -223,6 +225,7 @@ sort:
   unzip_archives: false
 subfolders:
   create: true
+  group_loose_files: true
   include:
     album_id: false
     domain: true

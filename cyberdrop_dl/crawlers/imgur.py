@@ -42,7 +42,7 @@ class ImgurCrawler(Crawler):
             raise ScrapeError(json_resp["status"], data["error"])
 
     async def __async_post_init__(self) -> None:
-        with self.catch_errors(self.PRIMARY_URL), self.disable_on_error("Unable to get client id"):
+        async with self.catch_errors(self.PRIMARY_URL), self.disable_on_error("Unable to get client id"):
             self.client_id = await self._get_client_id()
 
     @disk_cached_method("client_id", ttl=86400 * 90)
@@ -60,6 +60,8 @@ class ImgurCrawler(Crawler):
         match scrape_item.url.parts[1:]:
             case ["a", album_id]:
                 await self.album(scrape_item, album_id)
+            case ["removed.png"]:
+                await self.raise_exc(scrape_item, HTTPStatus.GONE)
             case [slug]:
                 image_id = slug.partition(".")[0]
                 await self.image(scrape_item, image_id)

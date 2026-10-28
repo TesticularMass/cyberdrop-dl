@@ -607,6 +607,14 @@
           },
           "title": "Peertube",
           "type": "array"
+        },
+        "patreon": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/HttpURL"
+          },
+          "title": "Patreon",
+          "type": "array"
         }
       },
       "title": "GenericCrawlers",
@@ -911,6 +919,12 @@
           "default": false,
           "title": "Rotate",
           "type": "boolean"
+        },
+        "rotate_date_position": {
+          "default": "suffix",
+          "enum": ["prefix", "suffix"],
+          "title": "Rotate Date Position",
+          "type": "string"
         }
       },
       "title": "Logs",
@@ -1195,6 +1209,11 @@
         "create": {
           "default": true,
           "title": "Create",
+          "type": "boolean"
+        },
+        "group_loose_files": {
+          "default": true,
+          "title": "Group Loose Files",
           "type": "boolean"
         },
         "include": {

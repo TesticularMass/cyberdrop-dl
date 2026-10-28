@@ -197,6 +197,7 @@ class GenericCrawlers(ConfigModel):
     kvs: tuple[HttpURL, ...] = ()
     video: tuple[HttpURL, ...] = ()
     peertube: tuple[HttpURL, ...] = ()
+    patreon: tuple[HttpURL, ...] = ()
 
 
 class Crawlers(ConfigGroup, name=None):

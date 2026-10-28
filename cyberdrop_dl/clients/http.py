@@ -18,7 +18,7 @@ from cyberdrop_dl.clients.request import Request, RequestParams
 from cyberdrop_dl.clients.response import AbstractResponse, FlareSolverrResponse
 from cyberdrop_dl.cookies import make_simple_cookie
 from cyberdrop_dl.exceptions import DDOSGuardError, DownloadError, ScrapeError
-from cyberdrop_dl.signature import simple_repr
+from cyberdrop_dl.signature import dataclass_repr
 from cyberdrop_dl.utils import enter_context, truncated_preview
 from cyberdrop_dl.utils.dataclass import ConfigDataclass, frozen
 
@@ -87,6 +87,9 @@ class HTTPLimiter:
 
 
 @final
+@dataclass_repr(
+    "config", "_ssl_context", "_cookies", "_flaresolverr", "limiter", "request_done_callback", "_use_flaresolverr_ua"
+)
 class HTTPClient:
     request_done_callback: RequestDoneCallback | None = None
 
@@ -107,16 +110,6 @@ class HTTPClient:
         self._wreq_session: WreqClient | None = None
         self._session: aiohttp.ClientSession
         self._download_session: aiohttp.ClientSession
-
-    __repr__ = simple_repr(
-        "config",
-        "_ssl_context",
-        "_cookies",
-        "_flaresolverr",
-        "limiter",
-        "request_done_callback",
-        "_use_flaresolverr_ua",
-    )
 
     @property
     def ssl_context(self):
@@ -563,6 +556,7 @@ class HTTPConfig(ConfigDataclass):
     impersonate: str | bool | None = None
     rate_limit: RateLimit | None = None
     json_check: JSONCheck | None = None
+    probe_method: HttpMethod | None = None
 
     @classmethod
     def default_headers(
@@ -604,6 +598,7 @@ class HTTPContext:
     json_check: JSONCheck | None = None
     impersonate: str | bool | None = None
     throttle: Callable[[], Awaitable[Any]] | None = None
+    probe_method: HttpMethod = "HEAD"
     headers: dict[str, str] = dataclasses.field(default_factory=dict)
 
     @classmethod
@@ -622,6 +617,7 @@ class HTTPContext:
             impersonate=config.impersonate,
             json_check=config.json_check,
             throttle=throttle,
+            probe_method=config.probe_method or "HEAD",
         )
 
 

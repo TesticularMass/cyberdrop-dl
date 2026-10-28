@@ -22,9 +22,8 @@ from cyberdrop_dl.exceptions import (
     RestrictedFiletypeError,
     SkipDownloadError,
 )
-from cyberdrop_dl.hasher import compute_in_place_hash
 from cyberdrop_dl.progress.scraping import show_msg
-from cyberdrop_dl.signature import simple_repr
+from cyberdrop_dl.signature import dataclass_repr
 from cyberdrop_dl.url_objects import MuxVideo
 from cyberdrop_dl.utils import dates
 from cyberdrop_dl.utils.errors import error_handling_wrapper
@@ -109,6 +108,7 @@ class Capacity:
             self.condition.notify_all()
 
 
+@dataclass_repr("slots", "server_slots", "log_prefix", "capacity", "_semaphore", "_server_sems")
 class Downloader:
     """High level class that handles limiters, database checks, skip by config checks and retries"""
 
@@ -134,8 +134,6 @@ class Downloader:
         self.__post_init__()
 
     def __post_init__(self) -> None: ...
-
-    __repr__ = simple_repr("slots", "server_slots", "log_prefix", "capacity", "_semaphore", "_server_sems")
 
     @property
     def tui(self) -> ScrapingUI:
@@ -290,9 +288,9 @@ class Downloader:
         await self.manager.database.history.add_download_filename(media_item.domain, media_item)
 
     @error_handling_wrapper
-    async def run(self, media_item: MediaItem, streams: Rendition | MuxVideo | None = None) -> None:
+    async def run(self, media_item: MediaItem, streams: Rendition | MuxVideo | None = None) -> bool:
         if media_item.db_path in self._processed_items and not self.config.ignore_history:
-            return
+            return False
 
         if streams is not None:
             assert ffmpeg.is_installed()
@@ -308,9 +306,7 @@ class Downloader:
                 case _:  # pyright: ignore[reportUnnecessaryComparison]
                     raise ValueError(f"Unsupported streams: {streams!r}")
 
-        if media_item.downloaded:
-            await self._compute_hashes(media_item)
-            self.manager.add_completed(media_item)
+        return media_item.downloaded
 
     async def _file(self, media_item: MediaItem) -> None:
         if not await self._download(media_item):
@@ -363,16 +359,6 @@ class Downloader:
         self.tui.files.stats.completed += 1
         logger.info(f"Download finished: {media_item.url}")
         await self.client.mark_completed(media_item, media_item.domain)
-
-    async def _compute_hashes(self, media_item: MediaItem) -> None:
-        # TODO: move this to the scrape_mapper as a post-download task
-        if self.config.hashing.mode is constants.HashMode.OFF:
-            return
-        try:
-            if self.config.hashing.mode is constants.HashMode.IN_PLACE:
-                await compute_in_place_hash(self.manager.hasher, media_item)
-        except Exception:
-            logger.exception("Unable to compute hashes of '%s'", media_item.path)
 
 
 async def _merge_streams(media_item: MediaItem, streams: hls.Streams) -> None:
