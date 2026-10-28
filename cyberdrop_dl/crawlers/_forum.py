@@ -12,6 +12,8 @@ from __future__ import annotations
 import base64
 import dataclasses
 import datetime as dt
+import itertools
+import json
 import re
 from abc import abstractmethod
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, final
@@ -164,7 +166,7 @@ class MessageBoardCrawler(Crawler, is_abc=True):
 
     THREAD_PART_NAMES: ClassVar[Sequence[str]] = "thread", "topic", "tema", "threads", "topics", "temas"
     ATTACHMENT_URL_PARTS: ClassVar[tuple[str, ...]] = "attachments", "data", "uploads"
-    ATTACHMENT_HOSTS: ClassVar[Sequence[str]] = ()
+    ATTACHMENT_HOSTS: ClassVar[tuple[str, ...]] = ()
     SUPPORTS_THREAD_RECURSION: ClassVar[bool] = False
     LOGIN_USER_COOKIE_NAME: ClassVar[str] = ""
 
@@ -313,7 +315,7 @@ class MessageBoardCrawler(Crawler, is_abc=True):
             if n_parents > self.max_thread_depth:
                 return True
 
-            return not (self.SUPPORTS_THREAD_RECURSION and bool(self.max_thread_depth))
+            return not (self.SUPPORTS_THREAD_RECURSION and self.max_thread_depth)
 
         return False
 
@@ -453,7 +455,24 @@ class HTMLMessageBoardCrawler(MessageBoardCrawler, is_abc=True):
             if post_url and post_url != thread.url:
                 self.manager.scrape_mapper.logs.write_last_forum_post(post_url)
 
+    @classmethod
+    def _resolve_spoiler_iframes(cls, soup: BeautifulSoup) -> None:
+        for name in ("data-s9e-mediaembed",):
+            attr = f"{name}-iframe"
+            for span_iframe in soup.select(f"span[{name}]"):
+                try:
+                    data = json.loads(css.select(span_iframe, f"span[{attr}]", attr))
+                except (css.SelectorError, ValueError):
+                    continue
+
+                if type(data) is not list or len(data) % 2 != 0:
+                    cls.get_logger().warning("Unable to resolve iframe attributes: %s", data)
+                    continue
+
+                span_iframe.replace_with(soup.new_tag("iframe", attrs=dict(itertools.batched(data, 2))))
+
     def _iter_posts(self, thread: ThreadProtocol, soup: BeautifulSoup) -> Generator[ForumPost]:
+        self._resolve_spoiler_iframes(soup)
         for article in soup.select(self.SELECTORS.posts.article):
             post = ForumPost.new(article, self.SELECTORS.posts)
             if thread.post_id and post.id < thread.post_id:
@@ -471,7 +490,8 @@ class HTMLMessageBoardCrawler(MessageBoardCrawler, is_abc=True):
         if password := self.extract_password(post):
             scrape_item.password = password
 
-        async with self.new_task_group() as tg:
+        sleep = aio.periodic_sleep(10)
+        async with aio.non_cancelling_taskgroup() as tg:
             for scraper in (
                 self._attachments,
                 self._images,
@@ -485,6 +505,7 @@ class HTMLMessageBoardCrawler(MessageBoardCrawler, is_abc=True):
                     stats[scraper_name] = stats.get(scraper_name, 0) + 1
                     tg.create_task(self.process_child(scrape_item, url, embeds="embeds" in scraper_name))
                     scrape_item.add_children()
+                    await sleep()
 
         if stats:
             self.log.info(f"post #{post.id} {stats = }")
@@ -555,10 +576,14 @@ class HTMLMessageBoardCrawler(MessageBoardCrawler, is_abc=True):
 
     @error_handling_wrapper
     async def resolve_confirmation_link(self, link: AbsoluteHttpURL) -> AbsoluteHttpURL | None:
-        if url := link.query.get("url") or link.query.get("to"):
-            url = base64.urlsafe_b64decode(b64_pad(url)).decode("utf-8")
-            if url.startswith("https://"):
-                return self.parse_url(url)
+
+        if b64_url := link.query.get("url") or link.query.get("to"):
+            url = base64.urlsafe_b64decode(b64_pad(b64_url)).decode("utf-8")
+        else:
+            url = link.query.get("u")
+
+        if url and url.startswith("https://"):
+            return self.parse_url(url)
 
         soup = await self.request_soup(link)
         selector = self.SELECTORS.confirmation_button
@@ -694,9 +719,15 @@ def clean_link_str(link: str) -> str:
 
 
 def is_confirmation_link(link: AbsoluteHttpURL) -> bool:
-    return (
-        "masked" in link.parts or "link-confirmation" in link.path or ("redirect" in link.parts and "to" in link.query)
-    )
+    match link.parts[1:]:
+        case ["ads", "go", *_] if link.query.get("u"):
+            return True
+        case _:
+            return (
+                "masked" in link.parts
+                or "link-confirmation" in link.path
+                or ("redirect" in link.parts and "to" in link.query)
+            )
 
 
 def pre_process_child(link_str: str, *, embeds: bool = False) -> str | None:

@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import asyncio
-import builtins
 import contextlib
 import dataclasses
 import sys
@@ -98,6 +97,39 @@ class EagerTaskGroup(asyncio.TaskGroup):
         return self.create_task(coro, name=name, context=context, eager_start=True)
 
 
+@contextlib.asynccontextmanager
+async def non_cancelling_taskgroup() -> AsyncGenerator[EagerTaskGroup]:
+    """A taskgroup that does not cancel its tasks if an exception is raised within its `async with` context
+
+    Exceptions raised within a task will still cancel all others tasks
+
+    This is mostly just to catch `MaxChildrenError`"""
+
+    context_exc = None
+    task_exc = None
+
+    try:
+        async with EagerTaskGroup() as tg:
+            try:
+                yield tg
+            except Exception as e:  # noqa: BLE001
+                context_exc = e
+    except ExceptionGroup as eg:
+        if context_exc is None:
+            raise
+        task_exc = eg
+
+    try:
+        if task_exc is not None and context_exc is not None:
+            raise BaseExceptionGroup(task_exc.message, (*task_exc.exceptions, context_exc)) from None
+        if task_exc is not None:
+            raise task_exc from None
+        if context_exc is not None:
+            raise context_exc from None
+    finally:
+        context_exc = task_exc = None
+
+
 @dataclasses.dataclass(frozen=True, slots=True, eq=False)
 class TaskManager:
     logs: EagerTaskGroup = dataclasses.field(default_factory=EagerTaskGroup)
@@ -121,23 +153,28 @@ class _AsyncChain:
                 yield value
 
     @staticmethod
-    async def yield_this[T](obj: T) -> AsyncGenerator[T]:
-        yield obj
+    def yield_this[T](*items: T) -> AsyncGenerator[T]:
+        return to_async_iterable(items)
+
+
+async def to_async_iterable[T](items: Iterable[T]) -> AsyncGenerator[T]:
+    for item in items:
+        yield item
 
 
 chain = _AsyncChain()
 
 
-async def next[T](async_iterator: AsyncIterator[T]) -> T:
+async def async_next[T](async_iterator: AsyncIterator[T]) -> T:
     try:
-        return await builtins.anext(async_iterator)
+        return await anext(async_iterator)
     except StopAsyncIteration as e:
         raise e.__cause__ or e from None
 
 
 async def peek_first[T](async_iterable: AsyncIterable[T], /) -> tuple[T, AsyncGenerator[T]]:
     async_iterator = aiter(async_iterable)
-    first = await next(async_iterator)
+    first = await async_next(async_iterator)
 
     async def _replayed() -> AsyncGenerator[T]:
         yield first
@@ -162,6 +199,24 @@ class WeakAsyncLocks[T]:
         if lock is None:
             self._locks[key] = lock = asyncio.Lock()
         return lock
+
+
+@dataclasses.dataclass(frozen=True, slots=True, eq=False)
+class async_defaultdict[T, R]:  # noqa: N801
+    fn: Callable[[T], Awaitable[R]]
+    cache: dict[T, R] = dataclasses.field(default_factory=dict)
+    locks: WeakAsyncLocks[T] = dataclasses.field(default_factory=WeakAsyncLocks)
+
+    async def get(self, val: T) -> R:
+        with contextlib.suppress(LookupError):
+            return self.cache[val]
+
+        async with self.locks[val]:
+            with contextlib.suppress(LookupError):
+                return self.cache[val]
+
+            result = self.cache[val] = await self.fn(val)
+            return result
 
 
 class RateLimiter(AsyncLimiter):
@@ -236,7 +291,7 @@ class AsyncIteratorWrapper[T]:
     async def __anext__(self) -> T:
         if self._iterator is None:
             self._iterator = iter(await self._coro)
-        value = await asyncio.to_thread(builtins.next, self._iterator, MISSING)
+        value = await asyncio.to_thread(next, self._iterator, MISSING)
         if value is MISSING:
             raise StopAsyncIteration from None
 
@@ -422,7 +477,7 @@ async def map_tuples[*Ts, R](
         while True:
             await semaphore.acquire()
             try:
-                idx, params = builtins.next(pending)
+                idx, params = next(pending)
             except StopIteration:
                 semaphore.release()
                 break
@@ -453,7 +508,7 @@ async def as_completed[*Ts, R](
     async def worker() -> None:
         while not shutdown.is_set():
             try:
-                args = builtins.next(params)
+                args = next(params)
             except StopIteration:
                 return
 

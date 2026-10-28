@@ -4,11 +4,12 @@ import base64
 import dataclasses
 from typing import TYPE_CHECKING, ClassVar, override
 
-from cyberdrop_dl import env
+from cyberdrop_dl import aio, env
 from cyberdrop_dl.clients.http import HTTPConfig
+from cyberdrop_dl.constants import FileExt
 from cyberdrop_dl.crawlers import Registry
 from cyberdrop_dl.crawlers.crawler import Crawler, SupportedDomains, SupportedPaths
-from cyberdrop_dl.exceptions import DDOSGuardError, ScrapeError
+from cyberdrop_dl.exceptions import DDOSGuardError, DownloadError, ScrapeError
 from cyberdrop_dl.url_objects import AbsoluteHttpURL
 from cyberdrop_dl.utils import b64_pad, css, extr_text
 from cyberdrop_dl.utils.errors import error_handling_wrapper
@@ -27,7 +28,7 @@ _HOMEPAGE_CATCH_ALL = "/s21/FHVZKQyAZlIsrneDAsp.jpeg"
 class FileditchCrawler(Crawler):
     SUPPORTED_DOMAINS: ClassVar[SupportedDomains] = "theditch.st", "fileditch"
     SUPPORTED_PATHS: ClassVar[SupportedPaths] = {
-        "File": (
+        "File / Embed": (
             "/file.php?f=<file_id>",
             "/beta123/<file_id>/<name>",
             "/temp/<file_id>/<name>",
@@ -35,7 +36,8 @@ class FileditchCrawler(Crawler):
         ),
         "Short URL": "https://theditch.st/<short_id>",
     }
-    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://fileditchfiles.me/")
+    PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://fileditchfiles.me")
+    OLD_DOMAINS: ClassVar[tuple[str, ...]] = ("embedditch.st",)
     DOMAIN: ClassVar[str] = "fileditch"
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
@@ -85,15 +87,17 @@ class FileditchCrawler(Crawler):
         )
 
     async def request_download(self, url: AbsoluteHttpURL) -> File:
-        resp = await self.flaresolverr_request(url, wait=env.FILEDITCH_WAIT)
+        resp = None
+        if url.suffix.lower() in FileExt.VIDEO:
+            # Try embeds first, they have no CF turnstile
+            try:
+                resp = await self.flaresolverr_request(url.with_host("embedditch.st"), wait=env.FILEDITCH_WAIT)
+            except (DDOSGuardError, DownloadError):
+                pass
+
+        resp = resp or await self.flaresolverr_request(url, wait=env.FILEDITCH_WAIT)
         soup = await resp.soup()
-
-        if soup.select_one(".gone-path"):
-            raise ScrapeError(410)
-        if soup.select_one("form#pow-form"):
-            raise DDOSGuardError("Flaresolverr failed proof of work challenge")
-
-        src = self.parse_url(css.select(soup, "a.btn[download]", "href"))
+        src = _extract_dl_url(soup)
         return File(
             name=src.name if src.query else url.name,
             path=_file_path(src),
@@ -115,7 +119,7 @@ class File:
 
 
 @FileditchCrawler.__http_config__
-class FileditchAlbumsCrawler(Crawler):
+class FileditchAlbumsCrawler(Crawler, wiki_site="FileditchAlbums"):
     # Keep this as a separate class. Site changes domains frequently
     # Let the scrape mapper dispatch to the best matching domain
     SUPPORTED_PATHS: ClassVar[SupportedPaths] = {
@@ -124,6 +128,15 @@ class FileditchAlbumsCrawler(Crawler):
     PRIMARY_URL: ClassVar[AbsoluteHttpURL] = AbsoluteHttpURL("https://fileditchalbums.st")
     DOMAIN: ClassVar[str] = "fileditchalbums"
     FOLDER_DOMAIN: ClassVar[str] = FileditchCrawler.FOLDER_DOMAIN
+    NEXT_PAGE_SELECTOR: ClassVar[str] = "a[rel=next]:-soup-contains('›')"  # noqa: RUF001
+
+    def __post_init__(self) -> None:
+        self.update_cookies({"fda_pp": 120})  # items per page
+
+    @classmethod
+    @override
+    def transform_url(cls, url: AbsoluteHttpURL) -> AbsoluteHttpURL:
+        return super().transform_url(url).without_query_params("p", "page")
 
     async def fetch(self, scrape_item: ScrapeItem) -> None:
         match scrape_item.url.parts[1:]:
@@ -134,12 +147,13 @@ class FileditchAlbumsCrawler(Crawler):
 
     @error_handling_wrapper
     async def album(self, scrape_item: ScrapeItem, album_id: str) -> None:
-        soup = await self.request_soup(scrape_item.url)
+        soup, pages = await aio.peek_first(self.web_pager(scrape_item.url))
         name = self.create_title(css.select_text(soup, "h1.title"))
         scrape_item.setup_as_album(name, album_id=album_id)
-        for new_item in self.iter_children(scrape_item, soup, ".grid article.card > a.thumb[href]"):
-            self.handle_embed(new_item)
-            scrape_item.add_children()
+        async for soup in pages:
+            for new_item in self.iter_children(scrape_item, soup, ".grid article.card > a.thumb[href]"):
+                self.handle_embed(new_item)
+                scrape_item.add_children()
 
 
 def _extr_thumb(soup: bs4.Tag) -> str | None:
@@ -166,3 +180,16 @@ def _file_path(url: AbsoluteHttpURL) -> str:
                 return "/" + path.partition("/")[-1]
 
     raise ScrapeError(422, f"Unable to extract a valid download URL. Found: {url}")
+
+
+def _extract_dl_url(soup: bs4.Tag) -> AbsoluteHttpURL:
+    if soup.select_one(".gone-path"):
+        raise ScrapeError(410)
+
+    for form in css.iselect(soup, "form:has(input[type='hidden'])"):
+        if form.select_one("button.lang"):  # language form
+            continue
+
+        raise DDOSGuardError("Flaresolverr failed proof of work challenge")
+
+    return FileditchCrawler.parse_url(css.select(soup, "a.btn[download]", "href"))

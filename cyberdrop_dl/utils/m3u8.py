@@ -9,10 +9,11 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple, Self
 import m3u8.model
 from m3u8 import M3U8 as _M3U8
 from m3u8 import Media, Playlist
+from m3u8.mixins import BasePathMixin, GroupedBasePathMixin
 
 from cyberdrop_dl.exceptions import DownloadError
 from cyberdrop_dl.mediaprops import Codecs, Resolution
-from cyberdrop_dl.signature import simple_repr
+from cyberdrop_dl.signature import simple_repr, vars_repr
 from cyberdrop_dl.utils import parse_url
 from cyberdrop_dl.utils.dataclass import DictDataclass
 
@@ -23,6 +24,9 @@ if TYPE_CHECKING:
     from cyberdrop_dl.url_objects import AbsoluteHttpURL
 
 logger = logging.getLogger(__name__)
+
+
+BasePathMixin.__repr__ = GroupedBasePathMixin.__repr__ = vars_repr
 
 
 class MediaType(StrEnum):
@@ -116,8 +120,8 @@ class StreamInfo:
 @dataclasses.dataclass(frozen=True, slots=True, order=True)
 class RenditionDetails:
     resolution: Resolution
-    codecs: Codecs
     stream_info: StreamInfo
+    codecs: Codecs
     media: MediaList
     urls: MediaURLs
 
@@ -136,7 +140,7 @@ class RenditionDetails:
 
         stream_info = StreamInfo(**vars(playlist.stream_info))
         resolution = _parse_stream_resolution(stream_info, video_url)
-        codecs = Codecs.parse(playlist.stream_info.codecs)
+        codecs = Codecs.parse(playlist.stream_info.codecs or "")
         media = MediaList(playlist.media)
 
         if audio_group_id := playlist.stream_info.audio:
@@ -149,7 +153,7 @@ class RenditionDetails:
 
         media_urls = MediaURLs(video_url, audio_url, subtitle_url)
 
-        return RenditionDetails(resolution, codecs, stream_info, media, media_urls)
+        return RenditionDetails(resolution, stream_info, codecs, media, media_urls)
 
 
 def _parse_stream_resolution(stream_info: StreamInfo, video_url: AbsoluteHttpURL) -> Resolution:
@@ -186,14 +190,16 @@ class HLSKey:
             raise RuntimeError("Another key is already set")
 
     @classmethod
-    def parse(cls, seg: m3u8.model.Segment | m3u8.model.InitializationSection) -> Self | None:
+    def parse(cls, seg: m3u8.model.Segment | m3u8.model.InitializationSection, idx: int) -> Self | None:
         if isinstance(seg, m3u8.model.Segment) and seg.key and seg.key.method and seg.key.method != "NONE":
             key_uri = seg.key.absolute_uri or seg.key.uri
             assert key_uri
             if seg.key.iv:
                 iv = bytes.fromhex(seg.key.iv.removeprefix("0x"))
             else:
-                iv = (seg.media_sequence or 0).to_bytes(16, "big")
+                media_sequence = seg.media_sequence if seg.media_sequence is not None else idx
+                iv = media_sequence.to_bytes(16, "big")
+
             return cls(
                 method=Encryption(seg.key.method),
                 iv=iv,
@@ -277,8 +283,10 @@ class VariantM3U8Parser:
         if isinstance(only, str):
             only = (only,)
 
+        only = tuple(map(Codecs.pretty_name, only))
+        exclude = tuple(map(Codecs.pretty_name, exclude))
         for group in self.groups:
-            if codec := group.codecs.video:
+            if codec := Codecs.pretty_name(group.codecs.video or ""):
                 if only and codec not in only:
                     continue
                 if codec in exclude:

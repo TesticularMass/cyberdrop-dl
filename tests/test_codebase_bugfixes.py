@@ -1,18 +1,12 @@
 import asyncio
-import os
-from pathlib import Path
-from http.cookies import SimpleCookie
-import pytest
-from multidict import CIMultiDict, CIMultiDictProxy
-import yarl
 
-from cyberdrop_dl.url_objects import AbsoluteHttpURL, MediaItem
-from cyberdrop_dl.utils.m3u8 import M3U8, HLSKey
-from cyberdrop_dl.scrape_source import _regex_links
-from cyberdrop_dl.crawlers.crawler import compose_title
 from cyberdrop_dl.config import Config
 from cyberdrop_dl.crawlers._forum import clean_link_str
+from cyberdrop_dl.crawlers.crawler import compose_title
 from cyberdrop_dl.downloader.http import Capacity
+from cyberdrop_dl.scrape_source import _regex_links
+from cyberdrop_dl.url_objects import AbsoluteHttpURL
+from cyberdrop_dl.utils.m3u8 import M3U8, HLSKey
 
 
 def test_regex_links_invalid_url_no_crash() -> None:
@@ -32,7 +26,7 @@ seg1.ts
 #EXT-X-ENDLIST
 """
     m = M3U8(content, base_uri=AbsoluteHttpURL("https://cdn.example.com/hls/master.m3u8"))
-    key = HLSKey.parse(m.segments[0])
+    key = HLSKey.parse(m.segments[0], 0)
     assert key is not None
     assert key.uri == AbsoluteHttpURL("https://cdn.example.com/hls/keys/video.key")
     assert key.iv == (42).to_bytes(16, "big")
@@ -53,24 +47,22 @@ def test_clean_link_str_preserves_unrelated_ifr() -> None:
 
 
 async def test_capacity_wait_notifies_all_waiters() -> None:
-    cap = Capacity(limit=2)
-    cap.waiting = 3
+    cap = Capacity("test", limit=2)
+    cap.waiting = 20  # overloaded: > max(limit * 1.2, limit + 10)
     woken = []
 
     async def worker(idx: int) -> None:
-        await cap.wait("test")
+        await cap.wait()
         woken.append(idx)
 
     tasks = [asyncio.create_task(worker(i)) for i in range(4)]
     await asyncio.sleep(0)
     assert len(woken) == 0
 
-    cap.waiting = 2
-    async with cap.condition:
-        cap.condition.notify_all()
+    cap.waiting = 1
+    await cap.notify()
     await asyncio.sleep(0.01)
 
     assert len(woken) == 4
     for t in tasks:
         t.cancel()
-

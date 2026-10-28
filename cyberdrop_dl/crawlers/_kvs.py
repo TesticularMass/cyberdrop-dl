@@ -6,7 +6,7 @@ import asyncio
 import dataclasses
 import itertools
 import re
-from typing import TYPE_CHECKING, Any, ClassVar, final
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, final
 
 import yarl
 
@@ -15,6 +15,7 @@ from cyberdrop_dl.crawlers.crawler import Crawler, SupportedPaths, URLConfig
 from cyberdrop_dl.exceptions import DownloadError, ScrapeError
 from cyberdrop_dl.mediaprops import Resolution
 from cyberdrop_dl.utils import css, extr_text, json_ld, open_graph, parse_url
+from cyberdrop_dl.utils.dataclass import DictDataclass
 from cyberdrop_dl.utils.errors import error_handling_wrapper
 
 if TYPE_CHECKING:
@@ -48,7 +49,6 @@ class Selector:
     class Videos:
         PUBLIC = "div#list_videos_public_videos_items"
         PRIVATE = "div#list_videos_private_videos_items"
-        FAVOURITE = "div#list_videos_favourite_videos_items"
         TITLE = "div#list_videos_common_videos_list h1"
 
 
@@ -62,6 +62,7 @@ class KernelVideoSharingCrawler(Crawler, is_abc=True):
         "Tags": "/tags/<name>",
         "Videos": "/videos/<slug>",
         "Members": "/members/<member_id>",
+        "Members favorites": "/members/<member_id>/favourite_videos",
     }
     NEXT_PAGE_SELECTOR: ClassVar[str] = "li.pagination-next > a"
     THUMBNAIL_SELECTOR: ClassVar[str] = Selector.THUMBNAILS
@@ -147,7 +148,6 @@ class KernelVideoSharingCrawler(Crawler, is_abc=True):
 
         for selector, path in [
             (Selector.Videos.PUBLIC, "public_videos"),
-            (Selector.Videos.FAVOURITE, "favourite_videos"),
             (Selector.Videos.PRIVATE, "private_videos"),
         ]:
             if soup.select_one(selector):
@@ -242,6 +242,40 @@ class KernelVideoSharingCrawler(Crawler, is_abc=True):
 
             yield soup
 
+    async def _ajax_pager(
+        self, url: AbsoluteHttpURL, from_params: tuple[str, ...] | str = ("from",), init_page: int = 1
+    ) -> AsyncIterator[BeautifulSoup]:
+        if isinstance(from_params, str):
+            from_params = (from_params,)
+
+        for page in itertools.count(init_page):
+            try:
+                soup = await self.request_soup(url.update_query(dict.fromkeys(from_params, page)))
+            except DownloadError as e:
+                if e.status == 404:
+                    break
+                raise
+
+            yield soup
+
+
+@dataclasses.dataclass(slots=True, frozen=True)
+class KVSAjaxPagination:
+    block_id: str
+    function: str = "get_block"
+    mode: str = "async"
+    sort_by: str = "post_date"
+    is_private: Literal[0, 1] = 0
+    q: str | None = None
+
+    __iter__ = DictDataclass.__iter__
+
+    def __json__(self) -> dict[str, str | int]:
+        return {k: v for k, v in self if v is not None}
+
+    def __call__(self, url: AbsoluteHttpURL) -> AbsoluteHttpURL:
+        return url.update_query(self.__json__())
+
 
 def extract_kvs_video(cls: Crawler, soup: BeautifulSoup) -> KVSVideo:
     if soup.select_one(Selector.UNAUTHORIZED):
@@ -264,18 +298,12 @@ def extract_kvs_video(cls: Crawler, soup: BeautifulSoup) -> KVSVideo:
 
 
 def _extract_upload_date(soup: BeautifulSoup) -> str | None:
-
     try:
-        return open_graph.get("video:release_date", soup) or css.select(
-            soup, "meta[property='video:release_date']", "content"
-        )
-    except css.SelectorError:
-        try:
-            return json_ld.find_attr(soup, "uploadDate")
-        except (LookupError, ValueError, css.SelectorError):
-            # Human date parsing was removed from parse_date. This fallback
-            # no longer supports relative strings like "2 hours ago".
-            return None
+        return open_graph.get_video_release_date(soup) or json_ld.find_attr(soup, "uploadDate")
+    except (LookupError, ValueError, css.SelectorError):
+        # Human date parsing was removed from parse_date. This fallback
+        # no longer supports relative strings like "2 hours ago".
+        return None
 
 
 # URL de-obfuscation code for kvs, adapted from yt-dlp

@@ -43,7 +43,7 @@ class Files:
     def update() -> None:
         import json
 
-        Files.SCHEMA.write_text(json.dumps(Config.model_json_schema(), indent=2, ensure_ascii=False))
+        Files.SCHEMA.write_text(json.dumps(Config.model_json_schema(), indent=2, ensure_ascii=False), encoding="utf8")
         Config().save_to(Files.DEFAULT)
 
 

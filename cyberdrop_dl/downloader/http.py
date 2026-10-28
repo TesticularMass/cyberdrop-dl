@@ -70,38 +70,43 @@ async def _exclusive_lock(media_item: MediaItem) -> AsyncGenerator[None]:
 
 @dataclasses.dataclass(slots=True)
 class Capacity:
-    limit: int | None = None
+    domain: str
     waiting: int = 0
+    limit: int = 50
     condition: asyncio.Condition = dataclasses.field(default_factory=asyncio.Condition)
-    _should_warn: bool = True
+    _was_overloaded: bool = False
 
-    @property
-    def overloaded(self) -> bool:
-        if self.limit is None:
-            return False
-        return self.waiting > max((self.limit * 1.2), self.limit + 10)
+    def __post_init__(self) -> None:
+        assert self.limit >= 1
 
-    async def _wait(self) -> None:
-        if self.limit is None:
-            return
+    def is_overloaded(self) -> bool:
+        return self.waiting > max(self.limit * 1.2, self.limit + 10)
 
+    def has_capacity(self) -> bool:
+        return self.waiting < self.limit
+
+    async def wait(self) -> None:
         async with self.condition:
-            await self.condition.wait_for(lambda: self.limit is not None and self.waiting <= self.limit)
+            if not self._was_overloaded and self.is_overloaded():
+                self._was_overloaded = True
+                logger.warning(
+                    "[%s] Too many downloads queued (%s+). All scraping has been temporarily paused",
+                    self.domain,
+                    self.limit,
+                )
 
-    async def wait(self, domain: str) -> None:
-        overloaded = self.overloaded
-        if overloaded and self._should_warn:
-            logger.warning(
-                "[%s] Too many downloads queued (%s+). All scraping has been temporarily paused",
-                domain,
-                self.limit,
-            )
-            self._should_warn = False
+            if not self._was_overloaded:
+                return
 
-        await self._wait()
-        if overloaded and not self.overloaded:
-            logger.debug("[%s] Resuming scraping", domain)
-            self._should_warn = True
+            await self.condition.wait_for(self.has_capacity)
+
+            if self._was_overloaded:
+                self._was_overloaded = False
+                logger.debug("[%s] Resuming scraping", self.domain)
+
+    async def notify(self) -> None:
+        async with self.condition:
+            self.condition.notify_all()
 
 
 class Downloader:
@@ -111,14 +116,18 @@ class Downloader:
     log_prefix: str = "Download"
 
     @final
-    def __init__(self, manager: Manager, slots: int | None = None, *, use_server_lock: bool = False) -> None:
+    def __init__(
+        self, manager: Manager, slots: int | None = None, *, use_server_lock: bool | int = False, domain: str
+    ) -> None:
         self.manager: Manager = manager
-        self.use_server_lock: bool = use_server_lock
-        self.capacity: Capacity = Capacity()
+        self.server_slots: int | bool = use_server_lock
+        self.capacity: Capacity = Capacity(domain)
         self.config: Config = self.manager.config
         self._processed_items: set[str] = set()
         self._current_attempt_filesize: dict[str, int] = {}
         self._server_locks: aio.WeakAsyncLocks[str] = aio.WeakAsyncLocks()
+
+        self._server_sems: dict[str, asyncio.BoundedSemaphore] = {}
         self._slots: int | None = slots
         self._semaphore: asyncio.Semaphore
         self._set_capacity_limit(slots)
@@ -126,7 +135,7 @@ class Downloader:
 
     def __post_init__(self) -> None: ...
 
-    __repr__ = simple_repr("slots", "use_server_lock", "log_prefix", "capacity", "_semaphore")
+    __repr__ = simple_repr("slots", "server_slots", "log_prefix", "capacity", "_semaphore", "_server_sems")
 
     @property
     def tui(self) -> ScrapingUI:
@@ -158,7 +167,7 @@ class Downloader:
     async def __download_w_retries(self, media_item: MediaItem) -> bool:
         while True:
             try:
-                return bool(await self.__download_file(media_item))
+                return bool(await self._download_file(media_item))
 
             except DownloadError as e:
                 if not self.SUPPORTS_RETRIES or not e.retry or media_item.attempts >= self.config.downloads.attempts:
@@ -201,11 +210,10 @@ class Downloader:
         async with self.lock(media_item.real_url):
             self._processed_items.add(media_item.db_path)
             self.capacity.waiting -= 1
-            async with self.capacity.condition:
-                self.capacity.condition.notify_all()
+            await self.capacity.notify()
             yield
 
-    async def __download_file(self, media_item: MediaItem) -> bool | None:
+    async def _download_file(self, media_item: MediaItem) -> bool | None:  # noqa: C901
         _check_url(media_item)
         media_item.attempts += 1
         try:
@@ -222,11 +230,13 @@ class Downloader:
         except (DownloadError, ClientResponseError, InvalidContentTypeError):
             raise
 
+        except TimeoutError:
+            raise DownloadError(status=999, message="Download timeout reached, retrying", retry=True) from None
+
         except (
             ConnectionResetError,
             FileNotFoundError,
             PermissionError,
-            TimeoutError,
             ClientError,
             ClientConnectorError,
         ) as e:
@@ -236,7 +246,6 @@ class Downloader:
                     raise DownloadError(ui_message, message=f"{self.log_prefix} failed", retry=True) from None
 
                 self._current_attempt_filesize[media_item.filename] = size
-                raise DownloadError(status=999, message="Download timeout reached, retrying", retry=True) from None
 
             raise DownloadError(ui_message, str(e), retry=True) from e
 
@@ -247,7 +256,16 @@ class Downloader:
 
     @contextlib.asynccontextmanager
     async def lock(self, url: AbsoluteHttpURL) -> AsyncGenerator[None]:
-        server_lock = self._server_locks[url.host] if self.use_server_lock else _NULL_CONTEXT
+        if self.server_slots is True:
+            server_lock = self._server_locks[url.host]
+        elif self.server_slots:
+            try:
+                server_lock = self._server_sems[url.host]
+            except LookupError:
+                server_lock = self._server_sems.setdefault(url.host, asyncio.BoundedSemaphore(self.server_slots))
+        else:
+            server_lock = _NULL_CONTEXT
+
         async with (
             server_lock,
             self._semaphore,
@@ -292,6 +310,7 @@ class Downloader:
 
         if media_item.downloaded:
             await self._compute_hashes(media_item)
+            self.manager.add_completed(media_item)
 
     async def _file(self, media_item: MediaItem) -> None:
         if not await self._download(media_item):
@@ -354,8 +373,6 @@ class Downloader:
                 await compute_in_place_hash(self.manager.hasher, media_item)
         except Exception:
             logger.exception("Unable to compute hashes of '%s'", media_item.path)
-        finally:
-            self.manager.add_completed(media_item)
 
 
 async def _merge_streams(media_item: MediaItem, streams: hls.Streams) -> None:

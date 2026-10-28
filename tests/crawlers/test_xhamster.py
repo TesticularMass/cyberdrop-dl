@@ -1,6 +1,65 @@
+import inspect
+from unittest import mock
+
 import pytest
 
-from cyberdrop_dl.crawlers.xhamster import _decode_hex_url, _decrypt_url
+from cyberdrop_dl.crawlers.xhamster import XhamsterCrawler, _decode_hex_url, _decrypt_url
+from cyberdrop_dl.exceptions import ScrapeError
+from cyberdrop_dl.url_objects import AbsoluteHttpURL, ScrapeItem
+
+
+@pytest.mark.parametrize(
+    ("has_mp4", "has_hls"),
+    [(True, False), (False, True), (True, True), (False, False)],
+    ids=["mp4-only", "hls-only", "mp4-preferred", "no-sources"],
+)
+async def test_video_source_selection(manager, monkeypatch, *, has_mp4: bool, has_hls: bool) -> None:
+    mp4_url = "https://example.com/video.mp4"
+    hls_url = "https://example.com/video.m3u8"
+    formats = []
+    if has_mp4:
+        formats.append({"url": mp4_url, "quality": "720p"})
+    if has_hls:
+        formats.append({"url": hls_url, "quality": "1080p"})
+    initials = {
+        "videoModel": {"idHashSlug": "test-id", "title": "Test video", "created": 1},
+        "xplayerSettings2": {"sources": {"standard": {"h264": formats}}},
+    }
+    crawler = XhamsterCrawler(manager, mock.MagicMock(), mock.MagicMock())
+    playlist = mock.sentinel.playlist
+    request_playlist = mock.AsyncMock(return_value=(playlist, None))
+    handle_file = mock.AsyncMock()
+    monkeypatch.setattr(crawler, "check_complete_from_referer", mock.AsyncMock(return_value=False))
+    monkeypatch.setattr(crawler.api, "get_window_initials", mock.AsyncMock(return_value=initials))
+    monkeypatch.setattr(crawler, "request_m3u8_playlist", request_playlist)
+    monkeypatch.setattr(crawler, "handle_file", handle_file)
+    monkeypatch.setattr(crawler, "create_custom_filename", mock.Mock(return_value="Test video.mp4"))
+    item = ScrapeItem.from_url("https://xhamster.com/videos/test-video-test-id")
+    video = inspect.unwrap(XhamsterCrawler.video)
+
+    if not has_mp4 and not has_hls:
+        with pytest.raises(ScrapeError, match="No video sources found") as error:
+            await video(crawler, item, "test-id")
+        assert error.value.status == 422
+        request_playlist.assert_not_awaited()
+        handle_file.assert_not_awaited()
+        return
+
+    await video(crawler, item, "test-id")
+
+    if has_mp4:
+        request_playlist.assert_not_awaited()
+    else:
+        request_playlist.assert_awaited_once_with(AbsoluteHttpURL(hls_url))
+    handle_file.assert_awaited_once_with(
+        item.url,
+        item,
+        "test-id.mp4",
+        custom_filename="Test video.mp4",
+        m3u8=None if has_mp4 else playlist,
+        debrid_link=AbsoluteHttpURL(mp4_url) if has_mp4 else None,
+        thumbnail=None,
+    )
 
 
 @pytest.mark.parametrize(

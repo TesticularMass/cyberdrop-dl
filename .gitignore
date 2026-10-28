@@ -11,6 +11,10 @@
 *.jsonl
 .coverage
 .config.yaml
+/config.yaml
+/links.txt
+/test_urls.txt
+/.claude/settings.local.json
 debug_run.test
 URLs.txt
 /build

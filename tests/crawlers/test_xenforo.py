@@ -45,11 +45,11 @@ def _post(
     message_attachments: str = "",
     id: int = 12345,  # noqa: A002
     crawler: type[xenforo.XenforoCrawler] | None = None,
-) -> _forum.ForumPost:
+) -> xenforo.ForumPost:
     crawler = crawler or TEST_CRAWLER
     html = _html(POST_TEMPLATE.format(id=id, message_body=message_body, message_attachments=message_attachments))
     article = css.select(css.soup(html), "article")
-    return _forum.ForumPost.new(article, crawler.SELECTORS.posts)
+    return xenforo.ForumPost.new(article, crawler.SELECTORS.posts)
 
 
 @pytest.fixture(name="manager")
@@ -174,7 +174,7 @@ def post_startup_manager(running_manager: Manager) -> Manager:
 )
 def test_parse_thread(url: str, thread_name_and_id: str, result: tuple[int, str, int, int], canonical_url: str) -> None:
     url_, canonical_url_ = AbsoluteHttpURL(url), AbsoluteHttpURL(canonical_url)
-    result_ = _forum.Thread(*result, canonical_url_)
+    result_ = xenforo.Thread(*result, canonical_url_)
     parsed = TEST_CRAWLER.parse_thread(url_, thread_name_and_id)
     assert result_ == parsed
 
@@ -183,7 +183,7 @@ def test_normalize_thread_request_url_removes_alias_segment() -> None:
     url = AbsoluteHttpURL(
         "https://simpcity.cr/threads/katelyn-s5410/ampisi-mrscampisi-thecampisis-the-campisis.125410/"
     )
-    normalized = _forum.normalize_thread_request_url(url, thread_part_index=1, thread_name_index=3)
+    normalized = xenforo.normalize_thread_request_url(url, thread_part_index=1, thread_name_index=3)
     assert normalized == AbsoluteHttpURL(
         "https://simpcity.cr/threads/ampisi-mrscampisi-thecampisis-the-campisis.125410/"
     )
@@ -209,7 +209,7 @@ async def test_fetch_thread_accepts_alias_segment_before_thread_name(manager: Ma
 
     assert scrape_item.url == expected_request_url
     thread = thread_mock.await_args.args[1]
-    assert thread == _forum.Thread(
+    assert thread == xenforo.Thread(
         125410,
         "ampisi-mrscampisi-thecampisis-the-campisis",
         1,
@@ -252,7 +252,7 @@ async def test_fetch_thread_accepts_alias_segment_before_thread_name(manager: Ma
     ],
 )
 def test_clean_link_url(link: str, out: str) -> None:
-    assert _forum.clean_link_str(link) == out
+    assert xenforo.clean_link_str(link) == out
 
 
 @pytest.mark.parametrize(
@@ -319,7 +319,7 @@ def test_clean_link_url(link: str, out: str) -> None:
     ],
 )
 def test_extract_embed_url(input_string: str, expected_output: str) -> None:
-    assert _forum.extract_embed_url(input_string) == expected_output
+    assert xenforo.extract_embed_url(input_string) == expected_output
 
 
 @pytest.mark.parametrize(
@@ -332,7 +332,7 @@ def test_extract_embed_url(input_string: str, expected_output: str) -> None:
     ],
 )
 def test_extract_embed_url_complex_path(input_string: str, expected_output: str) -> None:
-    assert _forum.extract_embed_url(input_string) == expected_output
+    assert xenforo.extract_embed_url(input_string) == expected_output
 
 
 def test_extract_embed_url_kvs_style_path_preserves_commands() -> None:
@@ -345,36 +345,37 @@ def test_extract_embed_url_kvs_style_path_preserves_commands() -> None:
         "buffer=5.0/12702000/12702535/12702535.mp4"
     )
     assert _forum.extract_embed_url(input_string) == expected_output
+    assert xenforo.extract_embed_url(input_string) == expected_output
 
 
 def test_extract_embed_url_should_extract_only_one_url() -> None:
     input_str = r"first_url \/\/first.com/path second_url \/\/www.second.net/another"
     expected_output = "https://first.com/path"
-    assert _forum.extract_embed_url(input_str) == expected_output
+    assert xenforo.extract_embed_url(input_str) == expected_output
 
 
 def test_extract_embed_url_with_escaped_backslashes_and_double_slashes() -> None:
     input_str = r"some_path\\to\\file\/\/imagepond.net\/clip.mov"
     expected_output = "https://imagepond.net/clip.mov"
-    assert _forum.extract_embed_url(input_str) == expected_output
+    assert xenforo.extract_embed_url(input_str) == expected_output
 
 
 def test_extract_embed_url_absolute_url_no_scheme() -> None:
     input_str = r"\/\/jpg5.su"
     expected_output = r"https://jpg5.su"
-    assert _forum.extract_embed_url(input_str) == expected_output
+    assert xenforo.extract_embed_url(input_str) == expected_output
 
 
 def test_extract_embed_url_should_not_modify_absolute_urls() -> None:
     input_str = r"https://celebforum.to/maps"
     expected_output = "https://celebforum.to/maps"
-    assert _forum.extract_embed_url(input_str) == expected_output
+    assert xenforo.extract_embed_url(input_str) == expected_output
 
 
 def test_extract_embed_url_string_ends_with_url() -> None:
     input_str = r"some text https://www.reddit.com/"
     expected_output = "https://reddit.com/"
-    assert _forum.extract_embed_url(input_str) == expected_output
+    assert xenforo.extract_embed_url(input_str) == expected_output
 
 
 def test_lazy_load_embeds() -> None:
@@ -389,6 +390,20 @@ def test_lazy_load_embeds() -> None:
     result = list(TEST_CRAWLER._lazy_load_embeds(post))
     assert len(result) == 1
     assert result[0] == "//redgifs.com/ifr/downrightcluelesswirm"
+
+
+def test_resolve_lazy_iframes() -> None:
+    content = r"""
+    <div class="bbCodeSpoiler-content">
+		<div class="bbCodeBlock bbCodeBlock--spoiler">
+			<div class="bbCodeBlock-content"><span data-s9e-mediaembed="vimeo"><span><span data-s9e-mediaembed-iframe='["allowfullscreen","","scrolling","no","src","\/\/player.vimeo.com\/video\/57187455"]'></span></span></span></div>
+		</div>
+	</div>"""
+
+    assert tuple(CelebForumCrawler._embeds(_post(content))) == ()
+    soup = css.soup(_html(content))
+    CelebForumCrawler._resolve_spoiler_iframes(soup)
+    assert tuple(CelebForumCrawler._embeds(_post(str(soup)))) == (r"//player.vimeo.com/video/57187455",)
 
 
 @pytest.mark.parametrize(
@@ -443,8 +458,8 @@ def test_lazy_load_embeds() -> None:
                 </a>
             </div>""",
             [
-                "https://simp6.jpg5.su/images3/issfanfan-20250129-0002b2b2fa9a5390f521.md.jpg",
-                "https://simp6.jpg5.su/images3/issfanfan-20250129-0001ef763780833ed714.md.jpg",
+                "https://jpg5.su/img/aqDYT6c",
+                "https://jpg5.su/img/aqDYZAt",
             ],
         ),
     ],
@@ -585,7 +600,7 @@ def test_get_post_title_thread_w_prefixes() -> None:
     </div>
     """)
     soup = css.soup(html)
-    title = _forum.get_post_title(soup, xenforo.XenforoCrawler.SELECTORS)
+    title = xenforo.get_post_title(soup, xenforo.XenforoCrawler.SELECTORS)
     assert title == "GunplaMeli"
 
 
@@ -596,7 +611,7 @@ def test_get_post_title_thread_w_no_prefixes() -> None:
     </div>
     """
     soup = css.soup(html)
-    title = _forum.get_post_title(soup, xenforo.XenforoCrawler.SELECTORS)
+    title = xenforo.get_post_title(soup, xenforo.XenforoCrawler.SELECTORS)
     assert title == "Staged/Fake Japanese Candid Videos from Gcolle/Pcolle or FC2"
 
 
@@ -604,7 +619,7 @@ def test_get_post_title_no_title_found() -> None:
     html = _html("")
     soup = css.soup(html)
     with pytest.raises(ScrapeError) as exc_info:
-        _forum.get_post_title(soup, xenforo.XenforoCrawler.SELECTORS)
+        xenforo.get_post_title(soup, xenforo.XenforoCrawler.SELECTORS)
 
     assert exc_info.value.status == 429
     assert exc_info.value.message == "Invalid response from forum. You may have been rate limited"
@@ -614,7 +629,7 @@ def test_get_post_title_empty_title_block() -> None:
     html = _html("""<h1 class="p-title-value"></h1>""")
     soup = css.soup(html)
     with pytest.raises(ScrapeError):
-        _forum.get_post_title(soup, xenforo.XenforoCrawler.SELECTORS)
+        xenforo.get_post_title(soup, xenforo.XenforoCrawler.SELECTORS)
 
 
 def test_get_post_title_non_english_chars() -> None:
@@ -626,7 +641,7 @@ def test_get_post_title_non_english_chars() -> None:
     </div>
     """)
     soup = css.soup(html)
-    title = _forum.get_post_title(soup, xenforo.XenforoCrawler.SELECTORS)
+    title = xenforo.get_post_title(soup, xenforo.XenforoCrawler.SELECTORS)
     assert title == "㊙️Hcupりおの極秘えち任務🙊💗 (りお❤️❤️❤️) / りお@Rio / rio_hcup_fantia"
 
 
@@ -641,7 +656,7 @@ def test_get_post_title_should_strip_new_lines() -> None:
     </div>
     """)
     soup = css.soup(html)
-    title = _forum.get_post_title(soup, xenforo.XenforoCrawler.SELECTORS)
+    title = xenforo.get_post_title(soup, xenforo.XenforoCrawler.SELECTORS)
     assert title == "㊙️Hcupりおの極秘えち任務🙊💗 (りお❤️❤️❤️) / りお@Rio / rio_hcup_fantia"
 
 
@@ -904,16 +919,16 @@ SIMPCITY_WHOLE_THREAD_FIXTURE = (
 )
 
 
-def _simpcity_fixture_posts(crawler: _forum.ForumCrawler) -> dict[int, _forum.ForumPost]:
+def _simpcity_fixture_posts(crawler: xenforo.XenforoCrawler) -> dict[int, xenforo.ForumPost]:
     soup = _load_xenforo_fixture(SIMPCITY_WHOLE_THREAD_FIXTURE)
-    posts: dict[int, _forum.ForumPost] = {}
+    posts: dict[int, xenforo.ForumPost] = {}
     for article in soup.select(crawler.SELECTORS.posts.article):
-        post = _forum.ForumPost.new(article, crawler.SELECTORS.posts)
+        post = xenforo.ForumPost.new(article, crawler.SELECTORS.posts)
         posts[post.id] = post
     return posts
 
 
-async def _normalize_extracted_links(crawler: xenforo.XenforoCrawler, post: _forum.ForumPost) -> list[str]:
+async def _normalize_extracted_links(crawler: xenforo.XenforoCrawler, post: xenforo.ForumPost) -> list[str]:
     normalized: list[str] = []
     for link in crawler._external_links(post):
         absolute = await crawler.get_absolute_link(link)
@@ -930,17 +945,17 @@ async def test_simpcity_whole_thread_preserves_extraction_regression_shape(manag
 
     expected_images_by_post = {
         659664: [
-            "https://simp1.selti-delivery.ru/images/ADE9702D-BAD9-4DAB-BE13-1340B334D45A.md.jpg",
-            "https://simp1.selti-delivery.ru/images/FAF16779-0151-461A-B56A-F6A5A7D5A6A7.md.jpg",
-            "https://simp1.selti-delivery.ru/images/36E0B645-741D-42D2-8923-4DF52311C502.md.jpg",
+            "https://jpg6.su/img/inb3ja",
+            "https://jpg6.su/img/inbZAH",
+            "https://jpg6.su/img/inbLWu",
         ],
         761355: [
-            "https://simp4.selti-delivery.ru/g2rxt9qd8wc91.md.jpg",
+            "https://jpg6.su/img/micsAH",
         ],
         943678: [
-            "https://simp4.selti-delivery.ru/237q2qzze4m91f4cbe0e27fd2a15a.md.jpg",
-            "https://simp4.selti-delivery.ru/k3zqncz7l4m9191ce0eada5ace347.md.jpg",
-            "https://simp4.selti-delivery.ru/zyortmzbe4m9116f79626d853988b.md.jpg",
+            "https://jpg6.su/img/8h5sPi",
+            "https://jpg6.su/img/8h5c0P",
+            "https://jpg6.su/img/8h5Q7o",
         ],
         3173859: [],
         3174102: [],
@@ -948,7 +963,7 @@ async def test_simpcity_whole_thread_preserves_extraction_regression_shape(manag
         3297485: [],
         3301990: [],
         44157189: [
-            "https://simp6.selti-delivery.ru/images4/IMG_879659805eab35eeb647.md.jpg",
+            "https://jpg6.su/img/NxwG7Um",
         ],
         44217641: [],
         45075694: [],

@@ -171,13 +171,15 @@ class XhamsterCrawler(Crawler):
                 for img in Gallery.parse(initials).images:
                     yield img
 
-        async with self.new_task_group() as tg:
+        sleep = aio.periodic_sleep(10)
+        async with aio.non_cancelling_taskgroup() as tg:
             async for index, img in aio.aenumerate(images(), start=1):
                 if img.src in downloaded:
                     continue
 
                 tg.create_task(self._image(scrape_item.create_child(img.url), img, index))
                 scrape_item.add_children()
+                await sleep()
 
     @error_handling_wrapper
     async def _image(self, scrape_item: ScrapeItem, img: Image, index: int) -> None:
@@ -203,9 +205,10 @@ class XhamsterCrawler(Crawler):
 
         if best_format := video.best_mp4:
             debrid_link = video.best_mp4.url
+        elif best_format := video.best_hls:
+            m3u8, _ = await self.request_m3u8_playlist(best_format.url)
         else:
-            best_format = video.best_hls
-            m3u8, _ = await self.request_m3u8_playlist(video.best_hls.url)
+            raise ScrapeError(422, "No video sources found")
 
         filename = self.create_custom_filename(
             video.title,
@@ -280,7 +283,7 @@ class Video:
     id: str
     title: str
     created: int
-    best_hls: Format
+    best_hls: Format | None
     best_mp4: Format | None
     thumb: str | None
 
@@ -313,7 +316,7 @@ def _parse_video(initials: dict[str, Any], video_id: str | None = None) -> Video
         id=video_id,
         title=video["title"],
         created=video.get("created") or video["addTime"],
-        best_hls=max(hls_sources),
+        best_hls=max(hls_sources, default=None),
         best_mp4=max(mp4_sources, default=None),
         thumb=video.get("thumbURL") or video.get("posterUrl"),
     )

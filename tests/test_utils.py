@@ -161,7 +161,7 @@ class TestTextEditor:
         assert isinstance(cmd, tuple)
         assert cmd[0].lower().endswith(".exe")
         np = tmp_cwd / "notepad++.exe"
-        np.write_text("test")
+        np.write_text("test", encoding="utf8")
         cmd = text_editor._find_win_editor()
         assert cmd
         assert cmd[1:] == (

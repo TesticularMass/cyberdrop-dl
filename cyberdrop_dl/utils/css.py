@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import html
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast, overload
+from typing import TYPE_CHECKING, NamedTuple, cast, overload
 
 from bs4 import BeautifulSoup
 from bs4.filter import SoupStrainer
@@ -53,17 +53,6 @@ class HTMLForm:
     inputs: dict[str, str | None]
 
 
-class JsonLD(dict[str, Any]):
-    @overload
-    def __getitem__(self, key: Literal["uploadDate"], /) -> str: ...  # pyright: ignore[reportNoOverloadImplementation]
-
-    @overload
-    def __getitem__(self, key: str, /) -> Any:
-        """Return self[key]."""
-
-    __getitem__ = dict.__getitem__
-
-
 def _select_one(tag: Tag, selector: str) -> Tag:
     """Same as `tag.select_one` but asserts the result is not `None`"""
     result = tag.select_one(selector)
@@ -85,8 +74,14 @@ def select_tag_text(html: str, tag_name: str) -> str:
     return select_text(soup(html, parse_only=tag_name), tag_name)
 
 
-def attr_or_none(tag: Tag, attribute: str) -> str | None:
+def attr_or_none(tag: Tag, *attributes: str) -> str | None:
     """Same as `tag.get(attribute)` but asserts the result is a single str"""
+    for attribute in attributes:
+        if result := _attr_or_none(tag, attribute):
+            return result
+
+
+def _attr_or_none(tag: Tag, attribute: str) -> str | None:
     attribute_ = attribute
     if attribute_ == "srcset":
         if (srcset := tag.get(attribute_)) and type(srcset) is str:
@@ -101,12 +96,11 @@ def attr_or_none(tag: Tag, attribute: str) -> str | None:
     return value
 
 
-def attr(tag: Tag, attribute: str) -> str:
+def attr(tag: Tag, *attributes: str) -> str:
     """Same as `tag.get(attribute)` but asserts the result is not `None` and is a single string"""
-    result = attr_or_none(tag, attribute)
-    if result is None:
-        raise SelectorError(f"{attribute = } not found")
-    return result
+    if result := attr_or_none(tag, *attributes):
+        return result
+    raise SelectorError(f"{attributes = } not found")
 
 
 def text(tag: Tag, *, strip: bool = True) -> str:
@@ -173,7 +167,7 @@ def parse_srcset(srcset: str) -> Generator[tuple[str, str]]:
 
 def best_from_srcset(srcset: str) -> str:
     options = dict(parse_srcset(srcset))
-    best = max(options, key=lambda decriptor: int(decriptor.rstrip("wx")))
+    best = max(options, key=lambda decriptor: float(decriptor.rstrip("wx")))
     return options[best]
 
 

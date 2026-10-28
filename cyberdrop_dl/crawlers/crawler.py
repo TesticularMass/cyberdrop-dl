@@ -14,17 +14,24 @@ from typing import TYPE_CHECKING, Any, ClassVar, Concatenate, Final, Literal, Se
 
 from aiohttp import hdrs
 
-from cyberdrop_dl import aio, env
+from cyberdrop_dl import aio
 from cyberdrop_dl.cache import TTLCacheAdapter
 from cyberdrop_dl.clients.downloads import IGNORE_CONTENT_TYPE
 from cyberdrop_dl.clients.http import HTTPClient, HTTPConfig, HTTPContext, HTTPMixin
+from cyberdrop_dl.config.settings import MAX_RATE_LIMIT
 from cyberdrop_dl.constants import USE_RETRY_PATH, FileExt, HttpMethod
 from cyberdrop_dl.crawlers import ALLOW_NO_EXT, SKIP_DOWNLOAD, Registry
 from cyberdrop_dl.crawlers._hls import HLSMixin
 from cyberdrop_dl.downloader.http import Downloader
 from cyberdrop_dl.exceptions import MaxChildrenError, NoExtensionError, ScrapeError
-from cyberdrop_dl.filepath import check_dangerous_filename, check_path_traversal, compose_filename, get_filename_and_ext
-from cyberdrop_dl.mediaprops import ISO639Subtitle, Resolution
+from cyberdrop_dl.filepath import (
+    Filename,
+    check_dangerous_filename,
+    check_path_traversal,
+    compose_filename,
+    get_filename_and_ext,
+)
+from cyberdrop_dl.mediaprops import Codecs, ISO639Subtitle, Resolution, ResolvedISO639Subtitle
 from cyberdrop_dl.models.validators import strings
 from cyberdrop_dl.url_objects import AbsoluteHttpURL, MediaItem, MuxVideo, ScrapeItem, is_absolute_http_url
 from cyberdrop_dl.utils import css, dates, enter_context, fast_cache, is_blob_or_svg, m3u8, parse_url, unique
@@ -36,7 +43,6 @@ if TYPE_CHECKING:
     import datetime as dt
     import http.cookies
     from collections.abc import (
-        AsyncGenerator,
         AsyncIterator,
         Awaitable,
         Callable,
@@ -117,6 +123,7 @@ class CrawlerInfo:
     scrape_mapper_keys: tuple[str, ...]
     supported_domains: tuple[str, ...]
     supported_paths: dict[str, tuple[str, ...]]
+    wiki_site: str | None = None
 
     __iter__ = DictDataclass.__iter__
 
@@ -185,13 +192,14 @@ class URLConfig(ConfigDataclass):
 class DownloadConfig(ConfigDataclass):
     __attr_name__: ClassVar[str] = "__dl_config__"
     slots: int | None = None
-    server_lock: bool | None = None
+    server_lock: int | bool | None = None
     ignore_content_type: bool | None = None
     impersonate: str | bool | None = None
+    delay: float = 0.0
 
 
 @URLConfig(trim=True, allow_empty_path=False, ignore_fragment=True)
-@HTTPConfig(rate_limit=(25, 1))
+@HTTPConfig(rate_limit=(MAX_RATE_LIMIT, 1))
 @DownloadConfig(slots=None, server_lock=False)
 class Crawler(HTTPMixin, HLSMixin, ABC):
     __dl_config__: ClassVar[DownloadConfig]
@@ -239,6 +247,15 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
     def check_host_match(cls, host: str) -> bool:
         return bool(host)
 
+    def _build_downloader[T: Downloader](self, cls: type[T] = Downloader) -> T:
+        assert self.__dl_config__.server_lock is not None
+        return cls(
+            self.manager,
+            use_server_lock=self.__dl_config__.server_lock,
+            slots=self.__dl_config__.slots,
+            domain=self.FOLDER_DOMAIN,
+        )
+
     @final
     def __init__(self, manager: Manager, task_mng: aio.TaskManager, tui: ScrapingUI) -> None:
         self.manager: Manager = manager
@@ -251,12 +268,8 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
         self.config: Config = manager.config
         self.client: HTTPClient = manager.http_client
         _CHECK_DL_CAPACITY.set(self.config.downloads.back_pressure)
-        assert self.__dl_config__.server_lock is not None
-        self.downloader: Downloader = Downloader(
-            manager,
-            use_server_lock=self.__dl_config__.server_lock,
-            slots=self.__dl_config__.slots,
-        )
+
+        self.downloader: Downloader = self._build_downloader()
 
         self.__http_ctx__: HTTPContext = HTTPContext.build(self.DOMAIN, self.__http_config__, self.__throttle)
         try:
@@ -304,7 +317,13 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
         This method its called once and only if the crawler is actually going to be scrape something"""
 
     def __init_subclass__(
-        cls, *, is_abc: bool = False, is_generic: bool = False, is_debug: bool = False, **kwargs: Any
+        cls,
+        *,
+        is_abc: bool = False,
+        is_generic: bool = False,
+        is_debug: bool = False,
+        wiki_site: str | None = None,
+        **kwargs: Any,
     ) -> None:
         assert cls.__name__.endswith("Crawler"), f"{cls.__name__} does not end with 'Crawler'"
         assert cls.__name__ not in Registry.names
@@ -321,7 +340,7 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
         cls.SUPPORTED_PATHS = paths  # pyright: ignore[reportConstantRedefinition, reportAttributeAccessIssue]
         cls.IS_ABC: bool = is_abc
 
-        add_to_registry = bool(not is_debug or (is_debug and env.ENABLE_DEBUG_CRAWLERS))
+        add_to_registry = not is_debug
 
         if cls.IS_GENERIC:
             cls.INFO: CrawlerInfo = CrawlerInfo.abstract("GENERIC", cls.NAME, paths)
@@ -351,13 +370,14 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
             supported_domains=_make_wiki_supported_domains(scrape_keys),
             scrape_mapper_keys=scrape_keys,
             supported_paths=paths,
+            wiki_site=wiki_site or cls.FOLDER_DOMAIN,
         )
         if add_to_registry:
             Registry.concrete.add(cls)
 
     async def __throttle(self) -> None:
         if _CHECK_DL_CAPACITY.get():
-            await self.downloader.capacity.wait(self.FOLDER_DOMAIN)
+            await self.downloader.capacity.wait()
 
     def __json_resp_check__(self, json_resp: Any, resp: AbstractResponse[Any], /) -> None:
         """Custom check for JSON responses.
@@ -408,6 +428,8 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
     def create_eager_task(self, coro: Coroutine[Any, Any, Any]) -> None:
         """Run this coro as soon as possible"""
         _ = self._task_mngr.scrape.create_eager_task(coro)
+
+    new_task_group: Final = staticmethod(aio.non_cancelling_taskgroup)
 
     @abstractmethod
     async def fetch(self, scrape_item: ScrapeItem) -> None:
@@ -500,7 +522,9 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
             return url.with_host(new_host)
         return url
 
-    def raise_exc(self, scrape_item: ScrapeItem, exc: type[Exception] | Exception | str | int) -> None:
+    def raise_exc(
+        self, scrape_item: ScrapeItem | AbsoluteHttpURL, exc: type[Exception] | Exception | str | int
+    ) -> None:
         with self.catch_errors(scrape_item):
             if isinstance(exc, (str, int)):
                 exc = ScrapeError(exc)
@@ -580,13 +604,9 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
             json_check=self.__json_resp_check__,
         )
 
-        if media_item.ext not in FileExt.MEDIA:
-            thumbnail = None
+        if media_item.ext in FileExt.MEDIA:
+            media_item.thumbnail = self.normalize_url(thumbnail)
 
-        elif thumbnail is not None and type(thumbnail) is not AbsoluteHttpURL:
-            thumbnail = self.parse_url(thumbnail)
-
-        media_item.thumbnail = thumbnail
         media_item.headers.update(self._prepare_headers(scrape_item))
         if headers:
             media_item.headers.update(headers)
@@ -598,28 +618,43 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
             check_path_traversal(self.config.download_folder, media_item.download_folder)
         check_dangerous_filename(media_item.download_filename or media_item.filename)
         await self.handle_media_item(media_item, m3u8)
+        await self._handle_thumb(media_item, scrape_item)
 
-        if thumbnail and self.config.filters.files.thumbnails:
-            with self.catch_errors(thumbnail):
-                ext = await self.sniff_ext(thumbnail)
-                thumb_name = f"{Path(media_item.filename).stem}_thumb{ext}"
-                filename, _ = self.get_filename_and_ext(thumb_name)
-                await self.handle_file(
-                    thumbnail,
-                    scrape_item,
-                    thumb_name,
-                    ext,
-                    custom_filename=filename,
-                    frag="thumbnail",
-                )
+    @final
+    @classmethod
+    def normalize_url(cls, url: AbsoluteHttpURL | str | None = None) -> AbsoluteHttpURL | None:
+        if not url:
+            return None
 
-    async def sniff_ext(self, thumbnail: AbsoluteHttpURL) -> str:
+        if type(url) is not AbsoluteHttpURL:
+            url = cls.parse_url(url)
+
+        return url
+
+    async def _handle_thumb(self, media_item: MediaItem, scrape_item: ScrapeItem) -> None:
+        if not (media_item.thumbnail and self.config.filters.files.thumbnails):
+            return
+
+        with self.catch_errors(media_item.thumbnail):
+            ext = await self.sniff_ext(media_item.thumbnail)
+            thumb_name = f"{Path(media_item.filename).stem}_thumb{ext}"
+            filename, _ = self.get_filename_and_ext(thumb_name)
+            await self.handle_file(
+                media_item.thumbnail,
+                scrape_item,
+                thumb_name,
+                ext,
+                custom_filename=filename,
+                frag="thumbnail",
+            )
+
+    async def sniff_ext(self, thumbnail: AbsoluteHttpURL, headers: dict[str, str] | None = None) -> str:
         try:
-            _, ext = self.get_filename_and_ext(thumbnail.name)
+            return self.get_filename_and_ext(thumbnail.name).suffix
         except NoExtensionError:
-            async with self.request(thumbnail, self._THUMB_HTTP_METHOD) as resp:
-                _, ext = self.get_filename_and_ext(thumbnail.name, mime_type=resp.content_type)
-        return ext
+            async with self.request(thumbnail, self._THUMB_HTTP_METHOD, headers=headers or {}) as resp:
+                name = thumbnail.name or thumbnail.parent.name or "file"
+                return self.get_filename_and_ext(name, mime_type=resp.content_type).suffix
 
     def _prepare_headers(self, scrape_item: ScrapeItem) -> dict[str, str]:
         return {
@@ -633,6 +668,8 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
     ) -> None:
         if self.__dl_config__.impersonate is not None:
             media_item.extra_info["impersonate"] = self.__dl_config__.impersonate
+        if self.__dl_config__.delay:
+            media_item.extra_info["delay"] = self.__dl_config__.delay
 
         try:
             if skip or SKIP_DOWNLOAD.get():
@@ -773,7 +810,7 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
         *,
         assume_ext: str | None = ".mp4",
         mime_type: str | None = None,
-    ) -> tuple[str, str]:
+    ) -> Filename:
         """Wrapper around `utils.get_filename_and_ext`.
         Calls it as is.
         If that fails, appends `assume_ext` and tries again, but only if the user had exclude_files_with_no_extension = `False`
@@ -939,39 +976,6 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
             await self.handle_file(url, scrape_item, filename, ext)
 
     @final
-    @contextlib.asynccontextmanager
-    async def new_task_group(self) -> AsyncGenerator[aio.EagerTaskGroup]:
-        """A taskgroup that does not cancel its tasks if an exception is raised within its `async with` context
-
-        Exceptions raised within a task will still cancel all tasks
-
-        This is mostly just to catch `MaxChildrenError`"""
-
-        context_exc = None
-        task_exc = None
-
-        try:
-            async with aio.EagerTaskGroup() as tg:
-                try:
-                    yield tg
-                except Exception as e:  # noqa: BLE001
-                    context_exc = e
-        except ExceptionGroup as eg:
-            if context_exc is None:
-                raise
-            task_exc = eg
-
-        try:
-            if task_exc is not None and context_exc is not None:
-                raise ExceptionGroup(task_exc.message, (*task_exc.exceptions, context_exc)) from None
-            if task_exc is not None:
-                raise task_exc from None
-            if context_exc is not None:
-                raise context_exc from None
-        finally:
-            context_exc = task_exc = None
-
-    @final
     @classmethod
     def parse_date(cls, date_or_datetime: str, /, format: str) -> float:  # noqa: A002
         return dates.parse_format(date_or_datetime, format).timestamp()
@@ -1011,9 +1015,9 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
             if _include.file_id and file_id:
                 yield file_id
             if _include.video_codec and video_codec:
-                yield video_codec
+                yield Codecs.pretty_name(video_codec)
             if _include.audio_codec and audio_codec:
-                yield audio_codec
+                yield Codecs.pretty_name(audio_codec)
 
             if _include.resolution and resolution and resolution not in {Resolution.highest(), Resolution.unknown()}:
                 res = resolution if type(resolution) is Resolution else Resolution.parse(resolution)
@@ -1052,6 +1056,67 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
                 )
             )
 
+    @final
+    def resolve_sub(self, sub: ISO639Subtitle | ResolvedISO639Subtitle) -> ResolvedISO639Subtitle:
+        if type(sub) is ResolvedISO639Subtitle:
+            return sub
+
+        lang_code = sub.lang_code or "en"
+        src = self.parse_url(sub.url)
+        ext = sub.ext
+
+        if not ext:
+            try:
+                ext = self.get_filename_and_ext(src.name).suffix
+            except NoExtensionError:
+                pass
+
+        return ResolvedISO639Subtitle(
+            url=src,
+            lang_code=lang_code,
+            ext=ext or sub.fallback_ext,
+            name=sub.name,
+        )
+
+    @final
+    async def handle_subs_v2(
+        self, scrape_item: ScrapeItem, video_filename: str, subtitles: Iterable[ISO639Subtitle]
+    ) -> None:
+        video_stem = Path(video_filename).stem
+        counter: Counter[str] = Counter()
+        async with aio.non_cancelling_taskgroup() as tg:
+            for sub in map(self.resolve_sub, subtitles):
+                counter[sub.lang_code] += 1
+                tg.create_task(
+                    self._handle_sub(
+                        scrape_item,
+                        video_stem,
+                        sub,
+                        track_id=counter[sub.lang_code],
+                    )
+                )
+
+    @final
+    async def _handle_sub(
+        self,
+        scrape_item: ScrapeItem,
+        video_stem: str,
+        sub: ResolvedISO639Subtitle,
+        track_id: int = 1,
+    ) -> None:
+        with self.catch_errors(sub.url):
+            ext = sub.ext or await self.sniff_ext(sub.url)
+            track_suffix = f".{track_id}" if track_id > 1 else ""
+            filename = f"{video_stem}.{sub.lang_code}{track_suffix}{ext}"
+            await self.handle_file(
+                sub.url,
+                scrape_item,
+                sub.name or filename,
+                ext,
+                custom_filename=self.get_filename_and_ext(filename).name,
+                frag=filename,
+            )
+
     async def generic_m3u8(self, scrape_item: ScrapeItem, url: AbsoluteHttpURL | None = None) -> None:
         url = url or scrape_item.url
         referer = scrape_item.get_referer()
@@ -1082,7 +1147,7 @@ class Crawler(HTTPMixin, HLSMixin, ABC):
             )
 
 
-@HTTPConfig(rate_limit=(25, 1))
+@Crawler.__http_config__
 class API(HTTPMixin, ABC):
     PRIMARY_URL: AbsoluteHttpURL = AbsoluteHttpURL()
     # We inherit from ABC to force type checkers to recognize attributes defined in __post_init__ as if they were defined in __init__

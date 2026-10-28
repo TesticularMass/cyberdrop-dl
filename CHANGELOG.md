@@ -22,6 +22,110 @@ All notable changes to this project will be documented here. For more details, v
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## UNRELEASED
+
+### Added
+
+- Support subfolders (Upfile)
+- Support subtitles (VKVideo)
+
+### Fixed
+
+- Handle posts with no audio (TikTok)
+- Do not stop entire profile scrape when a single post fails (TikTok)
+- Respect `--rate-limit` values higher than 25req/s
+
+### Security
+
+## [10.13.0] - 2026-10-24
+
+### Added
+
+- New `--crawlers.patreon.content-urls` option
+- Upfile support
+- Picdrop support
+- PPP3 support
+- VK support
+- VKVideo support
+
+### Changed
+
+- Only disable Flaresolverr after 5 wrong/missing solutions instead of 1
+
+### Fixed
+
+- All tweets being skipped (Twitter)
+- Some files not being parsed while downloading a post (Patreon)
+- Do not download thumbnails from embedded images (Simpcity)
+- Do not disable Flaresolverr when a request for a specific site is blocked (ex: IP ban)
+
+### Security
+
+- Updated CCADB embedded bundle to remove compromised eMudhra (emSign) certificates
+
+## [10.12.1] - 2026-10-20
+
+### Fixed
+
+- Do not crash if an input file has invalid URLs
+- Scraping being limited to 1 concurrent URL when a site's scrape queue exceeds its limit even after the queue shrinks back below it
+- `--hashing.post-download` never hashing any files
+- Thread URLs found within a another thread always being skipped even if ` --max-thread-depth` is greater than 0
+
+## [10.12.0] - 2026-10-17
+
+### Added
+
+- BunnyCDN support
+- Pixabay support
+- Archve support
+- Tiktikstream support
+- Smotrim support
+- Findr support
+- X-minus support
+- Betterome support
+- Area51 support
+- Support '/ads/go' redirect (Xenforo)
+- Support nested folders (YandexDisk)
+- Support 'themen' threads (Celebforum)
+- Embeds support (Fileditch)
+
+### Changed
+
+- Prefer H.265 over H.264 streams of the same resolution (m3u8)
+- Enable simpcity support
+- Try to download expired content (Imagepond)
+
+### Deprecated
+
+- Support for database schemas older that v10.2.1
+- Support for python 3.12
+
+### Removed
+
+- WeTransfer support
+- YTboob support
+
+### Fixed
+
+- Infinite pagination (Rumble)
+- Extract URLs from iframes hidden inside a `spoiler` tag (Xenforo)
+- '401 Unauthorized' on all downloads (SendVid)
+- Do not download placeholder "unavailable" videos (SendVid)
+- Do not download placeholder "unavailable" images (ImgBox)
+- Download of AES-128 segments with no IV (HLS)
+- Respect 'EXT-X-BYTERANGE' for HTTP requests (HLS)
+- Attachments detection (Discourse)
+- Challenge detection (Fileditch)
+- Download albums with 45+ items (Fileditch Albums)
+- Some download errors always being reported as `TimeoutError`
+
+## [10.11.1] - 2026-10-11
+
+### Fixed
+
+- Downloads of signed URLs (Fileditch)
+
 ## [10.11.0] - 2026-10-10
 
 ### Added
